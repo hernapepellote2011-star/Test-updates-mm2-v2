@@ -1,3653 +1,1856 @@
-local SpaceHub = { Version = "2.1.0", Flags = {}, Icons = {}, AutoSave = true, Haptics = true }
+local mt = getrawmetatable(game)
+make_writeable(mt)
+local old = mt.__namecall
+mt.__namecall = newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    if method == "Kick" or method == "kick" then
+        return wait(9e9)
+    end
+    return old(self, ...)
+end)
+
+pcall(function() if _G.MM2_ONLINE_STOP then _G.MM2_ONLINE_STOP() end end)
+pcall(function() if _G.MM2_HUB_CLEANUP then _G.MM2_HUB_CLEANUP() end end)
+
+local LIB_URL = "https://raw.githubusercontent.com/hernapepellote2011-star/Official-space-hub/refs/heads/main/abacktools-no-comments.txt"
+
+local ok, SpaceHub = pcall(function()
+	return loadstring(game:HttpGet(LIB_URL))()
+end)
+if not ok or type(SpaceHub) ~= "table" then
+	warn("[MM2 HUB] No se pudo cargar Space Hub: " .. tostring(SpaceHub))
+	return
+end
 
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local ContentProvider = game:GetService("ContentProvider")
+local RunService = game:GetService("RunService")
+local Lighting = game:GetService("Lighting")
 local HttpService = game:GetService("HttpService")
-local GuiService = game:GetService("GuiService")
-local HapticService = game:GetService("HapticService")
+local CollectionService = game:GetService("CollectionService")
+local StarterGui = game:GetService("StarterGui")
 
-local player = Players.LocalPlayer
+local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local PROFILE_URL = "https://www.roblox.com/es/users/9059869146/profile"
+local FLING_TIME = 5
 
-local ASSETS = {
-	Logo = "rbxassetid://125106043223530",
-	LogoFallback = "rbxassetid://73585195635518",
-	Title = "rbxassetid://124826554388136",
-	Settings = "rbxassetid://76513540818921",
-	Search = "rbxassetid://128095559298873",
-	Move = "rbxassetid://110394405698080",
-	Maximize = "rbxassetid://72317604064242",
-	Arrow = "rbxassetid://126239360781702",
-	Minimize = "rbxassetid://70481750251295",
-	Close = "rbxassetid://128546300558788",
-	Back = "rbxassetid://131669268202968",
-	Copy = "rbxassetid://97265175061437",
-}
-SpaceHub.Assets = ASSETS
+local Online = (function()
+	local DB = "https://nhfkjvgfnlk-default-rtdb.firebaseio.com/online"
+	local req = request or http_request or (syn and syn.request) or (http and http.request)
+	local myId = tostring(Player.UserId)
 
-local SIZE = {
-	Width = 640, Height = 400, Header = 42,
-	MinW = 480, MinH = 310, MaxW = 860, MaxH = 580,
-	PillW = 200, PillH = 44, Profile = 60,
-}
+	local PING_EVERY, READ_EVERY = 3, 1
+	local ALIVE_MS, STALE_MS = 10000, 60000
 
-local TEXT = Color3.fromRGB(232, 234, 255)
-local MUTED = Color3.fromRGB(154, 160, 208)
-local WHITE = Color3.new(1, 1, 1)
-local GREEN = Color3.fromRGB(47, 209, 111)
-local GRAY = Color3.fromRGB(138, 138, 138)
-local BAR_GRAY = Color3.fromRGB(120, 124, 134)
-local STEEL_A = Color3.fromRGB(44, 47, 58)
-local STEEL_B = Color3.fromRGB(26, 28, 36)
-local RED = Color3.fromRGB(240, 112, 132)
-local ICON_IDLE = Color3.fromRGB(138, 138, 138)
+	local listeners, nextKey = {}, 0
+	local token, running = 0, false
+	local serverNow, clockAtPing = nil, 0
+	local lastCount = nil
 
-local function C(r, g, b)
-	return Color3.fromRGB(r, g, b)
-end
-
-local THEMES = {
-	{ Name = "Space", Background = C(29, 33, 80), Line = C(44, 50, 112), Accent = C(135, 148, 255) },
-	{ Name = "Titanium", Background = C(38, 42, 52), Line = C(78, 85, 100), Accent = C(146, 174, 204) },
-	{ Name = "Graphite", Background = C(28, 30, 34), Line = C(64, 68, 76), Accent = C(170, 176, 188) },
-	{ Name = "Cobalt", Background = C(22, 40, 72), Line = C(50, 80, 130), Accent = C(98, 162, 255) },
-	{ Name = "Emerald", Background = C(20, 46, 44), Line = C(46, 92, 84), Accent = C(76, 214, 172) },
-	{ Name = "Crimson", Background = C(50, 24, 32), Line = C(104, 50, 64), Accent = C(240, 112, 132) },
-	{ Name = "Violet", Background = C(40, 30, 68), Line = C(82, 62, 128), Accent = C(172, 142, 255) },
-	{ Name = "Steel", Background = C(34, 40, 48), Line = C(70, 82, 96), Accent = C(120, 190, 230) },
-	{ Name = "Obsidian", Background = C(14, 16, 22), Line = C(40, 44, 56), Accent = C(120, 130, 255) },
-	{ Name = "Amber", Background = C(46, 36, 24), Line = C(100, 80, 46), Accent = C(240, 170, 70) },
-}
-SpaceHub.Themes = THEMES
-
-local function lum(c)
-	return 0.2126 * c.R + 0.7152 * c.G + 0.0722 * c.B
-end
-local function ensureVisible(c, bg, minDiff)
-	local target = lum(bg) < 0.5 and Color3.new(1, 1, 1) or Color3.fromRGB(12, 14, 20)
-	for _ = 1, 12 do
-		if math.abs(lum(c) - lum(bg)) >= minDiff then
-			break
-		end
-		c = c:Lerp(target, 0.15)
+	local function code(r)
+		return r and (r.StatusCode or (r.Success and 200))
 	end
-	return c
-end
-for _, t in ipairs(THEMES) do
-	local dark = lum(t.Background) < 0.5
-	local extreme = dark and Color3.new(1, 1, 1) or Color3.fromRGB(12, 14, 20)
-	t.Text = t.Text or ensureVisible(t.Accent:Lerp(extreme, 0.82), t.Background, 0.6)
-	t.Muted = t.Muted or ensureVisible(t.Accent:Lerp(extreme, 0.2), t.Background, 0.4)
-	t.Flash = t.Flash or ensureVisible(t.Accent:Lerp(extreme, 0.15), t.Background, 0.35)
-end
 
-local Theme = THEMES[1]
-TEXT, MUTED = Theme.Text, Theme.Muted
-local themeRegistry = {}
-local softRegistry = {}
-local themeHooks = {}
-local connections = {}
-local allGuis = {}
-
-local function tw(obj, t, props, style, dir)
-	local tween = TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out), props)
-	tween:Play()
-	return tween
-end
-
-local function apply(obj, props, animate, t, style)
-	if animate then
-		return tw(obj, t or 0.3, props, style)
-	end
-	for k, v in pairs(props) do
-		obj[k] = v
-	end
-end
-
-local SOFT_PROPS = { "TextColor3", "PlaceholderColor3", "ImageColor3" }
-local function new(class, props, parent)
-	local o = Instance.new(class)
-	for k, v in pairs(props) do
-		o[k] = v
-	end
-	o.Parent = parent
-	for _, prop in ipairs(SOFT_PROPS) do
-		local v = props[prop]
-		if v ~= nil and (v == TEXT or v == MUTED) then
-			table.insert(softRegistry, { o, prop })
+	local function push(n)
+		for _, fn in pairs(listeners) do
+			task.spawn(pcall, fn, n)
 		end
 	end
-	return o
-end
 
-local function corner(obj, r)
-	return new("UICorner", { CornerRadius = typeof(r) == "UDim" and r or UDim.new(0, r) }, obj)
-end
-
-local function pad(obj, top, right, bottom, left)
-	return new("UIPadding", {
-		PaddingTop = UDim.new(0, top), PaddingRight = UDim.new(0, right),
-		PaddingBottom = UDim.new(0, bottom), PaddingLeft = UDim.new(0, left),
-	}, obj)
-end
-
-local function themed(obj, prop, key)
-	obj[prop] = Theme[key]
-	table.insert(themeRegistry, { obj, prop, key })
-	return obj
-end
-
-local function applyTheme(t)
-	local oldText, oldMuted = TEXT, MUTED
-	Theme = t
-	TEXT, MUTED = t.Text, t.Muted
-	for i = #softRegistry, 1, -1 do
-		local r = softRegistry[i]
-		local inst, prop = r[1], r[2]
-		if inst.Parent then
-			local cur = inst[prop]
-			if cur == oldText then
-				tw(inst, 0.35, { [prop] = TEXT })
-			elseif cur == oldMuted then
-				tw(inst, 0.35, { [prop] = MUTED })
-			end
-		else
-			table.remove(softRegistry, i)
-		end
+	local function nowMs()
+		if not serverNow then return nil end
+		return serverNow + (os.clock() - clockAtPing) * 1000
 	end
-	for i = #themeRegistry, 1, -1 do
-		local r = themeRegistry[i]
-		if r[1].Parent then
-			tw(r[1], 0.35, { [r[2]] = t[r[3]] })
-		else
-			table.remove(themeRegistry, i)
-		end
-	end
-	for _, hook in ipairs(themeHooks) do
-		task.spawn(hook)
-	end
-end
 
-local function setThemeByName(name)
-	for _, t in ipairs(THEMES) do
-		if t.Name:lower() == tostring(name):lower() then
-			applyTheme(t)
-			local flag = SpaceHub.Flags["SpaceHub_Theme"]
-			if flag then
-				flag.CurrentValue = t.Name
-			end
-			return true
-		end
-	end
-	return false
-end
-
-local function bind(signal, fn)
-	local c = signal:Connect(fn)
-	table.insert(connections, c)
-	return c
-end
-
-local function canFile()
-	return type(writefile) == "function" and type(readfile) == "function" and type(isfile) == "function"
-end
-
-local function copyText(txt)
-	local f = setclipboard or toclipboard
-	if type(f) == "function" then
-		return (pcall(f, txt))
-	end
-	return false
-end
-
-local HAPTIC_STRENGTH = 0.22
-local HAPTIC_TIME = 0.05
-local hapticBusy = false
-local function haptic()
-	if not SpaceHub.Haptics or hapticBusy then
-		return
-	end
-	hapticBusy = true
-	task.spawn(function()
-		local fired = false
-		for _, inputType in ipairs({ Enum.UserInputType.Gamepad1, Enum.UserInputType.Touch }) do
-			pcall(function()
-				if HapticService:IsVibrationSupported(inputType) and HapticService:IsMotorSupported(inputType, Enum.VibrationMotor.Small) then
-					HapticService:SetMotor(inputType, Enum.VibrationMotor.Small, HAPTIC_STRENGTH)
-					fired = true
-					task.wait(HAPTIC_TIME)
-					HapticService:SetMotor(inputType, Enum.VibrationMotor.Small, 0)
-				end
-			end)
-			if fired then
-				break
-			end
-		end
-		task.wait(0.08)
-		hapticBusy = false
-	end)
-end
-SpaceHub.Haptic = haptic
-
-local function overlayFlash(target, radius, color, alpha, duration, withStroke)
-	if not (target and target.Parent) then
-		return
-	end
-	local fl = new("Frame", {
-		Size = UDim2.fromScale(1, 1), BackgroundColor3 = color, BackgroundTransparency = alpha,
-		BorderSizePixel = 0, ZIndex = 20,
-	}, target)
-	corner(fl, radius or 8)
-	local d = duration or 0.55
-	if withStroke then
-		local st = new("UIStroke", { Color = color, Thickness = 2, Transparency = 0.05 }, fl)
-		tw(st, d, { Transparency = 1 })
-	end
-	tw(fl, d, { BackgroundTransparency = 1 }).Completed:Connect(function()
-		fl:Destroy()
-	end)
-end
-
-local function glowFlash(target, color, duration)
-	local host = target and target.Parent
-	if not host then
-		return
-	end
-	color = color or Theme.Flash
-	duration = duration or 0.75
-	local ax, ay = target.AnchorPoint.X, target.AnchorPoint.Y
-	local layers = {
-		{ pad = 3, alpha = 0.45 },
-		{ pad = 7, alpha = 0.66 },
-		{ pad = 12, alpha = 0.82 },
-	}
-	for i, L in ipairs(layers) do
-		local pad = L.pad
-		local g = new("Frame", {
-			AnchorPoint = target.AnchorPoint,
-			Position = target.Position + UDim2.fromOffset(pad * (2 * ax - 1), pad * (2 * ay - 1)),
-			Size = target.Size + UDim2.fromOffset(pad * 2, pad * 2),
-			BackgroundColor3 = color, BackgroundTransparency = L.alpha, BorderSizePixel = 0,
-			ZIndex = target.ZIndex + 18 + i, Active = false,
-		}, host)
-		corner(g, 6 + pad)
-		local grow = pad + 4
-		local t = tw(g, duration, {
-			BackgroundTransparency = 1,
-			Position = target.Position + UDim2.fromOffset(grow * (2 * ax - 1), grow * (2 * ay - 1)),
-			Size = target.Size + UDim2.fromOffset(grow * 2, grow * 2),
+	local function ping()
+		local ok2, r = pcall(req, {
+			Url = DB .. "/" .. myId .. ".json",
+			Method = "PUT",
+			Headers = {["Content-Type"] = "application/json"},
+			Body = '{".sv":"timestamp"}'
 		})
-		t.Completed:Connect(function()
-			g:Destroy()
-		end)
-	end
-end
-
-local function flashGlow(target, radius, alpha)
-	overlayFlash(target, radius, Theme.Flash, alpha or 0.45, 0.6, true)
-	glowFlash(target, Theme.Flash)
-	haptic()
-end
-
-local function safeTap(hit, scroller, onTap)
-	local press
-	local lastScroll = 0
-	if scroller then
-		scroller:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
-			lastScroll = os.clock()
-			if press then
-				press.scrolled = true
-			end
-		end)
-	end
-	hit.InputBegan:Connect(function(input)
-		local t = input.UserInputType
-		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-			press = {
-				pos = input.Position, time = os.clock(), scrolled = false,
-				settled = (os.clock() - lastScroll) > 0.15, kind = t,
-			}
-		end
-	end)
-	bind(UserInputService.InputEnded, function(input)
-		if not press or input.UserInputType ~= press.kind then
-			return
-		end
-		local p = press
-		press = nil
-		local moved = (input.Position - p.pos).Magnitude
-		if p.settled and not p.scrolled and moved <= 10 and (os.clock() - p.time) <= 0.8 then
-			onTap()
-		end
-	end)
-end
-
-local function tintIcon(obj, color, animate)
-	if not (obj and obj.Parent) then
-		return
-	end
-	local function one(o)
-		local props
-		if o:IsA("ImageLabel") or o:IsA("ImageButton") then
-			if o.Image ~= "" then
-				props = { ImageColor3 = color }
-			end
-		elseif o:IsA("TextLabel") then
-			props = { TextColor3 = color }
-		elseif o:IsA("UIStroke") then
-			props = { Color = color }
-		elseif o:IsA("Frame") and o.BackgroundTransparency < 1 then
-			props = { BackgroundColor3 = color }
-		end
-		if props then
-			apply(o, props, animate, 0.15)
-		end
-	end
-	one(obj)
-	for _, d in ipairs(obj:GetDescendants()) do
-		one(d)
-	end
-end
-
-local function iconPress(hit, icon)
-	tintIcon(icon, ICON_IDLE, false)
-	local kind
-	hit.InputBegan:Connect(function(input)
-		local t = input.UserInputType
-		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-			kind = t
-			tintIcon(icon, WHITE, true)
-		end
-	end)
-	bind(UserInputService.InputEnded, function(input)
-		if kind and input.UserInputType == kind then
-			kind = nil
-			tintIcon(icon, ICON_IDLE, true)
-		end
-	end)
-end
-
-local function numericKeyboard(tb)
-	pcall(function()
-		tb.ContentType = Enum.ContentType.Number
-	end)
-	pcall(function()
-		tb.TextInputType = Enum.TextInputType.Number
-	end)
-	pcall(function()
-		tb.KeyboardType = Enum.KeyboardType.Number
-	end)
-end
-
-local ACCENTS = {
-	{ "á", "a" }, { "à", "a" }, { "ä", "a" }, { "â", "a" }, { "Á", "a" }, { "À", "a" }, { "Ä", "a" }, { "Â", "a" },
-	{ "é", "e" }, { "è", "e" }, { "ë", "e" }, { "ê", "e" }, { "É", "e" }, { "È", "e" }, { "Ë", "e" }, { "Ê", "e" },
-	{ "í", "i" }, { "ì", "i" }, { "ï", "i" }, { "î", "i" }, { "Í", "i" }, { "Ì", "i" }, { "Ï", "i" }, { "Î", "i" },
-	{ "ó", "o" }, { "ò", "o" }, { "ö", "o" }, { "ô", "o" }, { "Ó", "o" }, { "Ò", "o" }, { "Ö", "o" }, { "Ô", "o" },
-	{ "ú", "u" }, { "ù", "u" }, { "ü", "u" }, { "û", "u" }, { "Ú", "u" }, { "Ù", "u" }, { "Ü", "u" }, { "Û", "u" },
-	{ "ñ", "n" }, { "Ñ", "n" }, { "ç", "c" }, { "Ç", "c" },
-}
-local function normalize(s)
-	s = tostring(s)
-	for _, p in ipairs(ACCENTS) do
-		s = s:gsub(p[1], p[2])
-	end
-	return (s:lower():gsub("[^%w]", ""))
-end
-
-local function safe(fn, ...)
-	if type(fn) ~= "function" then
-		return
-	end
-	local ok, err = pcall(fn, ...)
-	if not ok then
-		warn("[Space Hub] Callback error: " .. tostring(err))
-		SpaceHub:Notify({ Title = "Callback error", Content = tostring(err), Duration = 6 })
-	end
-end
-
-local saveQueued = false
-local function autosave()
-	local s = SpaceHub._settings
-	if not (s and s.ConfigurationSaving and s.ConfigurationSaving.Enabled) or not SpaceHub.AutoSave then
-		return
-	end
-	if saveQueued then
-		return
-	end
-	saveQueued = true
-	task.delay(1, function()
-		saveQueued = false
-		SpaceHub:SaveConfiguration()
-	end)
-end
-
-local function applyIcon(img, icon)
-	local spec
-	if type(icon) == "number" then
-		spec = { Image = "rbxassetid://" .. icon }
-	elseif type(icon) == "string" and icon ~= "" then
-		if icon:find("rbxasset") or icon:find("^https?://") then
-			spec = { Image = icon }
-		elseif icon:match("^%d+$") then
-			spec = { Image = "rbxassetid://" .. icon }
-		else
-			local v = SpaceHub.Icons[icon:lower()]
-			if type(v) == "string" then
-				spec = { Image = v }
-			elseif type(v) == "number" then
-				spec = { Image = "rbxassetid://" .. v }
-			elseif type(v) == "table" then
-				spec = v
-			end
-		end
-	end
-	if not spec then
-		return false
-	end
-	img.Image = spec.Image
-	if spec.ImageRectSize then
-		img.ImageRectSize = spec.ImageRectSize
-	end
-	if spec.ImageRectOffset then
-		img.ImageRectOffset = spec.ImageRectOffset
-	end
-	return true
-end
-
-function SpaceHub:SetIcons(source)
-	local map = source
-	if type(source) == "string" then
-		local ok, res = pcall(function()
-			return loadstring(game:HttpGet(source))()
-		end)
-		map = ok and res or nil
-	end
-	if type(map) == "table" then
-		for k, v in pairs(map) do
-			self.Icons[tostring(k):lower()] = v
-		end
-	end
-end
-
-local function loadImage(obj, id, onFail)
-	if not id or id == "" then
-		onFail()
-		return
-	end
-	task.spawn(function()
-		local ok = false
-		pcall(function()
-			ContentProvider:PreloadAsync({ obj }, function(_, status)
-				ok = (status == Enum.AssetFetchStatus.Success)
-			end)
-		end)
-		if not ok then
-			onFail()
-		end
-	end)
-end
-
-local function metalStroke(obj, thickness)
-	local s = new("UIStroke", { Thickness = thickness, ApplyStrokeMode = Enum.ApplyStrokeMode.Border, Color = WHITE }, obj)
-	new("UIGradient", {
-		Rotation = 35,
-		Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, C(150, 154, 162)),
-			ColorSequenceKeypoint.new(0.2, C(250, 251, 253)),
-			ColorSequenceKeypoint.new(0.4, C(122, 126, 136)),
-			ColorSequenceKeypoint.new(0.6, C(238, 240, 244)),
-			ColorSequenceKeypoint.new(0.8, C(110, 114, 124)),
-			ColorSequenceKeypoint.new(1, C(214, 217, 224)),
-		}),
-	}, s)
-	return s
-end
-
-local function makeLabel(parent, props)
-	props.BackgroundTransparency = 1
-	props.Font = props.Font or Enum.Font.Gotham
-	props.TextSize = props.TextSize or 13
-	props.TextColor3 = props.TextColor3 or TEXT
-	props.TextXAlignment = props.TextXAlignment or Enum.TextXAlignment.Left
-	return new("TextLabel", props, parent)
-end
-
-local function makeButton(parent, caption, order, height, c1, c2, left)
-	local frame = new("Frame", {
-		LayoutOrder = order, Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = WHITE, BorderSizePixel = 0,
-	}, parent)
-	corner(frame, 8)
-	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(c1 or STEEL_A, c2 or STEEL_B) }, frame)
-	metalStroke(frame, 2)
-	local button = new("TextButton", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, AutoButtonColor = false,
-		Text = caption, Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = TEXT,
-		TextXAlignment = left and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center,
-	}, frame)
-	if left then
-		new("UIPadding", { PaddingLeft = UDim.new(0, 14) }, button)
-	end
-	return frame, button
-end
-
-local function row(parent, height, order)
-	local frame = new("Frame", {
-		LayoutOrder = order or 0, Size = UDim2.new(1, 0, 0, height), BackgroundColor3 = WHITE, BorderSizePixel = 0,
-	}, parent)
-	corner(frame, 8)
-	new("UIGradient", { Rotation = 90, Color = ColorSequence.new(STEEL_A, STEEL_B) }, frame)
-	metalStroke(frame, 1.5)
-	return frame
-end
-
-local function expandable(parent, order, name, bodyHeight)
-	local cont = new("Frame", {
-		LayoutOrder = order, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-	}, parent)
-	new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, cont)
-	local head = row(cont, 40, 1)
-	local nameLbl = makeLabel(head, {
-		Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.55, -12, 1, 0),
-		Text = name, Font = Enum.Font.GothamMedium, TextSize = 14,
-	})
-	local arrow = new("ImageLabel", {
-		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(18, 18),
-		BackgroundTransparency = 1, Image = ASSETS.Arrow, ImageColor3 = ICON_IDLE, ScaleType = Enum.ScaleType.Fit,
-	}, head)
-	loadImage(arrow, ASSETS.Arrow, function()
-		arrow.Image = ""
-		makeLabel(arrow, { Size = UDim2.fromScale(1, 1), Text = "v", Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Center })
-		tintIcon(arrow, ICON_IDLE, false)
-	end)
-	local body = new("Frame", {
-		LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1, ClipsDescendants = true,
-	}, cont)
-	local open = false
-	local ex = { Container = cont, Head = head, Name = nameLbl, Arrow = arrow, Body = body }
-	function ex.SetOpen(v, h)
-		open = v
-		tw(body, 0.3, { Size = UDim2.new(1, 0, 0, v and (h or bodyHeight) or 0) })
-		tw(arrow, 0.3, { Rotation = v and 180 or 0 })
-	end
-	function ex.IsOpen()
-		return open
-	end
-	local click = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 2 }, head)
-	iconPress(click, arrow)
-	click.Activated:Connect(function()
-		ex.SetOpen(not open)
-	end)
-	return ex
-end
-
-local function screenPos(input)
-	return Vector2.new(input.Position.X, input.Position.Y + GuiService:GetGuiInset().Y)
-end
-
-local function drawMagnifier(parent)
-	local ring = new("Frame", { Position = UDim2.fromOffset(2, 2), Size = UDim2.fromOffset(11, 11), BackgroundTransparency = 1 }, parent)
-	corner(ring, UDim.new(1, 0))
-	new("UIStroke", { Thickness = 2, Color = TEXT }, ring)
-	new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromOffset(14, 14), Size = UDim2.fromOffset(2, 7),
-		Rotation = -45, BackgroundColor3 = TEXT, BorderSizePixel = 0,
-	}, parent)
-end
-
-local function drawGear(parent)
-	local c = new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(28, 28), BackgroundTransparency = 1,
-	}, parent)
-	local ring = new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1,
-	}, c)
-	corner(ring, UDim.new(1, 0))
-	new("UIStroke", { Thickness = 3, Color = TEXT }, ring)
-	for i = 0, 7 do
-		local a = math.rad(i * 45)
-		new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, math.sin(a) * 11, 0.5, -math.cos(a) * 11),
-			Size = UDim2.fromOffset(4, 5), Rotation = i * 45, BackgroundColor3 = TEXT, BorderSizePixel = 0,
-		}, c)
-	end
-end
-
-local function guiParent()
-	local ok, core = pcall(function()
-		return game:GetService("CoreGui")
-	end)
-	if ok and core then
-		local probe = Instance.new("Folder")
-		local writable = pcall(function()
-			probe.Parent = core
-		end)
-		probe:Destroy()
-		if writable then
-			return core
-		end
-	end
-	return player:WaitForChild("PlayerGui")
-end
-
-local function keepOnTop(gui)
-	local cont = gui.Parent
-	local last = 0
-	local con = cont.ChildAdded:Connect(function(child)
-		if child ~= gui and child:IsA("ScreenGui") and os.clock() - last > 1 then
-			last = os.clock()
-			task.defer(function()
-				if gui.Parent == cont then
-					gui.Parent = nil
-					gui.Parent = cont
-				end
-			end)
-		end
-	end)
-	gui.Destroying:Connect(function()
-		con:Disconnect()
-	end)
-end
-
-local function createGui(name)
-	local parent = guiParent()
-	local old = parent:FindFirstChild(name)
-	if old then
-		old:Destroy()
-	end
-	local gui = new("ScreenGui", {
-		Name = name, IgnoreGuiInset = true, ResetOnSpawn = false,
-		DisplayOrder = 2147483647, ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	}, parent)
-	keepOnTop(gui)
-	table.insert(allGuis, gui)
-	return gui
-end
-
-local notifGui, notifHolder, notifCount = nil, nil, 0
-
-function SpaceHub:Notify(o)
-	o = o or {}
-	task.spawn(function()
-		if not (notifGui and notifGui.Parent) then
-			notifGui = createGui("SpaceHubNotifications")
-			notifHolder = new("Frame", {
-				AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -14, 1, -14),
-				Size = UDim2.new(0, 300, 1, -28), BackgroundTransparency = 1,
-			}, notifGui)
-			new("UIListLayout", {
-				Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Bottom,
-			}, notifHolder)
-		end
-		notifCount += 1
-		local wrap = new("Frame", {
-			LayoutOrder = notifCount, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-		}, notifHolder)
-		local card = new("CanvasGroup", {
-			Position = UDim2.new(1, 320, 0, 0), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-			BackgroundColor3 = Theme.Background, BorderSizePixel = 0, Active = true,
-		}, wrap)
-		corner(card, 10)
-		new("UIStroke", { Color = Theme.Line, Thickness = 1 }, card)
-		pad(card, 12, 12, 12, 12)
-		new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, card)
-
-		local hasIcon = false
-		if o.Image then
-			local img = new("ImageLabel", { LayoutOrder = 1, Size = UDim2.fromOffset(28, 28), BackgroundTransparency = 1, ImageColor3 = WHITE }, card)
-			hasIcon = applyIcon(img, o.Image)
-			if not hasIcon then
-				img:Destroy()
-			end
-		end
-		local textWrap = new("Frame", {
-			LayoutOrder = 2, Size = UDim2.new(1, hasIcon and -38 or 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-		}, card)
-		new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }, textWrap)
-		makeLabel(textWrap, {
-			LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-			Text = o.Title or "Notification", Font = Enum.Font.GothamBold, TextSize = 14, TextWrapped = true,
-		})
-		if o.Content and o.Content ~= "" then
-			makeLabel(textWrap, {
-				LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-				Text = o.Content, TextSize = 12, TextColor3 = MUTED, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
-			})
-		end
-
-		tw(card, 0.4, { Position = UDim2.new(0, 0, 0, 0) }, Enum.EasingStyle.Back)
-		local alive = true
-		card.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				alive = false
-			end
-		end)
-		local t0 = os.clock()
-		while alive and wrap.Parent and os.clock() - t0 < (o.Duration or 5) do
-			task.wait(0.1)
-		end
-		if wrap.Parent then
-			tw(card, 0.35, { Position = UDim2.new(1, 320, 0, 0), GroupTransparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			task.wait(0.4)
-			wrap:Destroy()
-		end
-	end)
-end
-
-local function configPath()
-	local cs = (SpaceHub._settings and SpaceHub._settings.ConfigurationSaving) or {}
-	local folder = cs.FolderName or "SpaceHub"
-	return folder, folder .. "/" .. (cs.FileName or "config") .. ".json"
-end
-
-function SpaceHub:SaveConfiguration()
-	if not canFile() then
-		return false
-	end
-	local data = {}
-	for flag, el in pairs(self.Flags) do
-		local t = el.Type
-		if t == "ColorPicker" then
-			local c = el.Color
-			data[flag] = { R = c.R, G = c.G, B = c.B }
-		elseif t == "Dropdown" then
-			data[flag] = el.CurrentOption
-		elseif t == "Keybind" then
-			data[flag] = el.CurrentKeybind
-		else
-			data[flag] = el.CurrentValue
-		end
-	end
-	local folder, path = configPath()
-	local ok = pcall(function()
-		if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(folder) then
-			makefolder(folder)
-		end
-		writefile(path, HttpService:JSONEncode(data))
-	end)
-	return ok
-end
-
-function SpaceHub:LoadConfiguration()
-	if not canFile() then
-		return false
-	end
-	local _, path = configPath()
-	local okFile, exists = pcall(isfile, path)
-	if not okFile or not exists then
-		return false
-	end
-	local ok, data = pcall(function()
-		return HttpService:JSONDecode(readfile(path))
-	end)
-	if not ok or type(data) ~= "table" then
-		return false
-	end
-	for flag, value in pairs(data) do
-		local el = self.Flags[flag]
-		if el then
-			pcall(function()
-				if el.Type == "ColorPicker" then
-					el:Set(Color3.new(value.R, value.G, value.B))
-				else
-					el:Set(value)
-				end
-			end)
-		end
-	end
-	return true
-end
-
-local function makeModal(gui, width)
-	local vp = workspace.CurrentCamera.ViewportSize
-	local veil = new("TextButton", {
-		Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1,
-		AutoButtonColor = false, Text = "", ZIndex = 50,
-	}, gui)
-	local card = new("CanvasGroup", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-		Size = UDim2.fromOffset(math.min(width, vp.X - 24), 0), AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = Theme.Background, BorderSizePixel = 0, GroupTransparency = 1,
-	}, veil)
-	corner(card, 12)
-	new("UIStroke", { Color = C(110, 114, 124), Thickness = 1 }, card)
-	local scale = new("UIScale", { Scale = 0.92 }, card)
-	pad(card, 16, 16, 16, 16)
-	new("UIListLayout", { Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, card)
-	tw(veil, 0.25, { BackgroundTransparency = 0.55 })
-	tw(card, 0.25, { GroupTransparency = 0 })
-	tw(scale, 0.25, { Scale = 1 })
-	local modal = { Card = card }
-	function modal.Close(after)
-		tw(veil, 0.2, { BackgroundTransparency = 1 })
-		tw(scale, 0.2, { Scale = 0.92 })
-		local t = tw(card, 0.2, { GroupTransparency = 1 })
-		t.Completed:Connect(function()
-			veil:Destroy()
-			if after then
-				after()
-			end
-		end)
-	end
-	return modal
-end
-
-local function modalText(card, order, txt, size, color, font)
-	return makeLabel(card, {
-		LayoutOrder = order, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-		Text = txt, TextSize = size, TextColor3 = color or TEXT, Font = font or Enum.Font.Gotham,
-		TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
-	})
-end
-
-local function buttonRow(card, order, defs)
-	local rowFrame = new("Frame", { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 40), BackgroundTransparency = 1 }, card)
-	new("UIListLayout", { FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder }, rowFrame)
-	local buttons = {}
-	for i, d in ipairs(defs) do
-		local frame, button = makeButton(rowFrame, d.Text, i, 40, d.C1, d.C2)
-		frame.Size = UDim2.new(1 / #defs, -10 * (#defs - 1) / #defs, 1, 0)
-		buttons[i] = button
-	end
-	return buttons
-end
-
-local RED_A, RED_B = C(205, 60, 60), C(140, 32, 40)
-local GRAY_A, GRAY_B = C(92, 95, 106), C(60, 62, 72)
-
-local function runKeySystem(settings)
-	local ks = settings.KeySettings or {}
-	local keys = ks.Key or {}
-	if type(keys) == "string" then
-		keys = { keys }
-	end
-	local valid = {}
-	for _, k in ipairs(keys) do
-		if ks.GrabKeyFromSite then
-			local ok, res = pcall(function()
-				return game:HttpGet(k)
-			end)
-			if ok and type(res) == "string" then
-				table.insert(valid, (res:gsub("%s", "")))
-			end
-		else
-			table.insert(valid, tostring(k))
-		end
-	end
-	local function check(txt)
-		txt = (tostring(txt or ""):gsub("^%s+", ""):gsub("%s+$", ""))
-		for _, k in ipairs(valid) do
-			if txt == k then
+		if ok2 and code(r) == 200 then
+			local t = tonumber(r.Body)
+			if t then
+				serverNow, clockAtPing = t, os.clock()
 				return true
 			end
 		end
 		return false
 	end
 
-	local folder = (settings.ConfigurationSaving and settings.ConfigurationSaving.FolderName) or "SpaceHub"
-	local path = folder .. "/" .. (ks.FileName or "Key") .. ".txt"
-	if ks.SaveKey ~= false and canFile() then
-		local ok, saved = pcall(function()
-			return isfile(path) and readfile(path) or nil
-		end)
-		if ok and saved and check(saved) then
-			return true
-		end
-	end
-
-	local gui = createGui("SpaceHubKey")
-	local modal = makeModal(gui, 360)
-	local card = modal.Card
-	modalText(card, 1, ks.Title or "Key System", 17, TEXT, Enum.Font.GothamBold)
-	if ks.Subtitle then
-		modalText(card, 2, ks.Subtitle, 13, MUTED)
-	end
-	if ks.Note then
-		modalText(card, 3, ks.Note, 12, MUTED)
-	end
-	local boxFrame = new("Frame", { LayoutOrder = 4, Size = UDim2.new(1, 0, 0, 38), BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0 }, card)
-	corner(boxFrame, 8)
-	metalStroke(boxFrame, 1.5)
-	local box = new("TextBox", {
-		Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, ClearTextOnFocus = false,
-		PlaceholderText = "Enter key...", PlaceholderColor3 = MUTED, Text = "", Font = Enum.Font.Gotham,
-		TextSize = 14, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
-	}, boxFrame)
-	local msg = modalText(card, 5, "", 12, RED)
-	local defs = { { Text = "Submit" }, { Text = "Cancel", C1 = GRAY_A, C2 = GRAY_B } }
-	if ks.KeyLink then
-		table.insert(defs, 2, { Text = "Get key" })
-	end
-	local buttons = buttonRow(card, 6, defs)
-
-	local result
-	local function submit()
-		if check(box.Text) then
-			if ks.SaveKey ~= false and canFile() then
-				pcall(function()
-					if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(folder) then
-						makefolder(folder)
-					end
-					writefile(path, box.Text)
-				end)
-			end
-			result = true
-		else
-			msg.Text = "Invalid key. Try again."
-			for i = 1, 6 do
-				card.Position = UDim2.new(0.5, (i % 2 == 0) and 8 or -8, 0.5, 0)
-				task.wait(0.04)
-			end
-			card.Position = UDim2.fromScale(0.5, 0.5)
-		end
-	end
-	buttons[1].Activated:Connect(submit)
-	box.FocusLost:Connect(function(enter)
-		if enter then
-			submit()
-		end
-	end)
-	if ks.KeyLink then
-		buttons[2].Activated:Connect(function()
-			msg.Text = copyText(ks.KeyLink) and "Link copied to clipboard." or ks.KeyLink
-			msg.TextColor3 = MUTED
-		end)
-	end
-	buttons[#buttons].Activated:Connect(function()
-		result = false
-	end)
-	repeat
-		task.wait(0.1)
-	until result ~= nil
-
-	local closed = false
-	modal.Close(function()
-		closed = true
-	end)
-	repeat
-		task.wait(0.05)
-	until closed
-	gui:Destroy()
-	if not result then
-		error("[Space Hub] Key system closed.", 0)
-	end
-	return true
-end
-
-local function discordPrompt(d)
-	if not d or not d.Enabled or not d.Invite or d.Invite == "" then
-		return
-	end
-	local folder = "SpaceHub"
-	local mark = folder .. "/discord_" .. tostring(d.Invite):gsub("[^%w]", "") .. ".txt"
-	if d.RememberJoins ~= false and canFile() then
-		local ok, seen = pcall(isfile, mark)
-		if ok and seen then
-			return
-		end
-	end
-	local gui = createGui("SpaceHubDiscord")
-	local modal = makeModal(gui, 340)
-	modalText(modal.Card, 1, d.Title or "Join our Discord", 17, TEXT, Enum.Font.GothamBold)
-	modalText(modal.Card, 2, d.Content or "Get updates, support and more.", 13, MUTED)
-	modalText(modal.Card, 3, "discord.gg/" .. d.Invite, 14, MUTED, Enum.Font.GothamMedium)
-	local buttons = buttonRow(modal.Card, 4, { { Text = "Copy invite" }, { Text = "Not now", C1 = GRAY_A, C2 = GRAY_B } })
-	local function done(copied)
-		modal.Close(function()
-			gui:Destroy()
-		end)
-		if copied and d.RememberJoins ~= false and canFile() then
-			pcall(function()
-				if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder(folder) then
-					makefolder(folder)
+	local function read()
+		local ok2, g = pcall(req, {Url = DB .. ".json", Method = "GET"})
+		if not ok2 or code(g) ~= 200 then return nil end
+		local ok3, data = pcall(HttpService.JSONDecode, HttpService, g.Body)
+		if not ok3 or type(data) ~= "table" then return 1 end
+		local now = nowMs()
+		if not now then return nil end
+		local n = 0
+		for k, t in pairs(data) do
+			if type(t) == "number" then
+				if now - t < ALIVE_MS then
+					n += 1
+				elseif now - t > STALE_MS then
+					task.spawn(pcall, req, {Url = DB .. "/" .. k .. ".json", Method = "DELETE"})
 				end
-				writefile(mark, "1")
+			end
+		end
+		return math.max(n, 1)
+	end
+
+	local function start()
+		if running or not req then return end
+		running = true
+		token += 1
+		local my = token
+		task.spawn(function()
+			while running and token == my do
+				ping()
+				task.wait(PING_EVERY)
+			end
+		end)
+		task.spawn(function()
+			while running and token == my do
+				local n = read()
+				if n ~= lastCount then
+					lastCount = n
+					push(n)
+				end
+				task.wait(READ_EVERY)
+			end
+		end)
+	end
+
+	local function stop()
+		if not running then return end
+		running = false
+		token += 1
+		lastCount = nil
+		if req then
+			task.spawn(pcall, req, {Url = DB .. "/" .. myId .. ".json", Method = "DELETE"})
+		end
+	end
+
+	local function bind(fn)
+		nextKey += 1
+		local key = nextKey
+		listeners[key] = fn
+		start()
+		if lastCount then task.spawn(pcall, fn, lastCount) end
+		return function()
+			if listeners[key] == nil then return end
+			listeners[key] = nil
+			task.delay(2, function()
+				if next(listeners) == nil then stop() end
 			end)
 		end
 	end
-	buttons[1].Activated:Connect(function()
-		local ok = copyText("https://discord.gg/" .. d.Invite)
-		SpaceHub:Notify({ Title = ok and "Invite copied" or "Copy not supported", Content = "discord.gg/" .. d.Invite, Duration = 4 })
-		done(ok)
-	end)
-	buttons[2].Activated:Connect(function()
-		done(false)
-	end)
-end
 
-local function pickLogo(id, fallback)
-	local probe = Instance.new("ImageLabel")
-	probe.Image = id
-	local ok = false
+	return { bind = bind, stop = function() listeners = {} stop() end }
+end)()
+_G.MM2_ONLINE_STOP = Online.stop
+
+local Window = SpaceHub:CreateWindow({
+	Name = "MM2 HUB ULTIMATE",
+	Theme = "Space",
+	LoadingDuration = 3,
+})
+
+local destroyed = false
+
+local function notify(text)
 	pcall(function()
-		ContentProvider:PreloadAsync({ probe }, function(_, status)
-			ok = (status == Enum.AssetFetchStatus.Success)
-		end)
+		Window:Notify({ Title = "MM2 HUB ULTIMATE", Content = text, Duration = 4 })
 	end)
-	probe:Destroy()
-	return ok and id or fallback
 end
 
-local function showLoading(settings)
-	local logoId = pickLogo(settings.LoadingLogo or ASSETS.Logo, ASSETS.LogoFallback)
-	local gui = createGui("SpaceHubIntro")
-	local vp = workspace.CurrentCamera.ViewportSize
-	local side = math.min(450, vp.X * 0.9, vp.Y * 0.9)
-	local duration = settings.LoadingDuration or 3
-	local fade = math.min(0.8, duration / 3)
-	local logo = new("ImageLabel", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(side, side),
-		BackgroundTransparency = 1, Image = logoId, ScaleType = Enum.ScaleType.Fit, ImageTransparency = 1,
-	}, gui)
-	tw(logo, fade, { ImageTransparency = 0 }, Enum.EasingStyle.Sine)
-	task.wait(duration - fade)
-	tw(logo, fade, { ImageTransparency = 1 }, Enum.EasingStyle.Sine)
-	task.wait(fade)
-	gui:Destroy()
+local function untoggle(t)
+	if t and t.CurrentValue then t:Set(false) end
 end
 
-local function makePage(parent)
-	local page = new("ScrollingFrame", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
-		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollingDirection = Enum.ScrollingDirection.Y, Visible = false,
-	}, parent)
-	themed(page, "ScrollBarImageColor3", "Accent")
-	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, page)
-	pad(page, 3, 8, 12, 3)
-	return page
-end
+local function getPlayerRole(player)
+	if not player then return "Innocent" end
+	local char = player.Character
+	local bp = player:FindFirstChild("Backpack")
 
-local function makeApi(page, tab, register)
-	local api = {}
-	local order = 0
-	local function nextOrder()
-		order += 1
-		return order
-	end
-	api._nextOrder = nextOrder
-
-	local function flag(o, obj)
-		if o.Flag then
-			SpaceHub.Flags[o.Flag] = obj
-		end
-	end
-
-	function api:CreateSection(name)
-		local f = new("Frame", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1 }, page)
-		local t = makeLabel(f, { Size = UDim2.new(1, 0, 1, -4), Text = name, Font = Enum.Font.GothamBold, TextColor3 = MUTED, TextSize = 12 })
-		local line = new("Frame", { AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0, 1), BorderSizePixel = 0 }, f)
-		themed(line, "BackgroundColor3", "Line")
-		local obj = { Type = "Section" }
-		function obj:Set(n)
-			t.Text = n
-		end
-		return obj
-	end
-
-	function api:CreateLabel(txt, icon)
-		local f = row(page, 36, nextOrder())
-		local x = 12
-		if icon then
-			local img = new("ImageLabel", { Position = UDim2.fromOffset(10, 9), Size = UDim2.fromOffset(18, 18), BackgroundTransparency = 1, ImageColor3 = WHITE }, f)
-			if applyIcon(img, icon) then
-				x = 36
-			else
-				img:Destroy()
-			end
-		end
-		local l = makeLabel(f, { Position = UDim2.fromOffset(x, 0), Size = UDim2.new(1, -x - 12, 1, 0), Text = txt })
-		register(txt, "Label", f, tab)
-		local obj = { Type = "Label" }
-		function obj:Set(t)
-			l.Text = t
-		end
-		return obj
-	end
-
-	function api:CreateParagraph(o)
-		local f = row(page, 0, nextOrder())
-		f.AutomaticSize = Enum.AutomaticSize.Y
-		pad(f, 10, 12, 10, 12)
-		new("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder }, f)
-		local title = makeLabel(f, {
-			LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-			Text = o.Title or "", Font = Enum.Font.GothamBold, TextSize = 14, TextWrapped = true,
-		})
-		local body = makeLabel(f, {
-			LayoutOrder = 2, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
-			Text = o.Content or "", TextSize = 12, TextColor3 = MUTED, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
-		})
-		register(o.Title or "Paragraph", "Paragraph", f, tab)
-		local obj = { Type = "Paragraph" }
-		function obj:Set(v)
-			title.Text = v.Title or title.Text
-			body.Text = v.Content or body.Text
-		end
-		return obj
-	end
-
-	function api:CreateButton(o)
-		local f = row(page, 40, nextOrder())
-		local b = new("TextButton", {
-			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, AutoButtonColor = false, Text = o.Name,
-			Font = Enum.Font.GothamMedium, TextSize = 14, TextColor3 = TEXT,
-		}, f)
-		b.Activated:Connect(function()
-			tw(b, 0.08, { TextTransparency = 0.5 }).Completed:Connect(function()
-				tw(b, 0.15, { TextTransparency = 0 })
-			end)
-			safe(o.Callback)
-		end)
-		register(o.Name, "Button", f, tab)
-		local obj = { Type = "Button" }
-		function obj:Set(n)
-			b.Text = n
-		end
-		return obj
-	end
-
-	function api:CreateToggle(o)
-		local TRACK_ON = C(54, 226, 104)
-		local TRACK_OFF = C(98, 101, 110)
-		local STROKE_ON = C(176, 255, 204)
-		local STROKE_OFF = C(122, 140, 130)
-		local LAYERS = 200
-		local GLOW_REACH = 56
-
-		local f = row(page, 40, nextOrder())
-		makeLabel(f, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -80, 1, 0), Text = o.Name, Font = Enum.Font.GothamMedium, TextSize = 14 })
-		local holder = new("Frame", {
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(46, 26), BackgroundTransparency = 1,
-		}, f)
-
-		local glowGroup = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-			Size = UDim2.new(1, GLOW_REACH * 2 + 4, 1, GLOW_REACH * 2 + 4),
-			BackgroundTransparency = 1, ZIndex = 1, Visible = false,
-		}, holder)
-		local glowLayers = {}
-		local outerColor, innerColor = C(40, 235, 170), C(40, 235, 105)
-		for i = 1, LAYERS do
-			local k = i / LAYERS
-			local extra = (LAYERS - i + 1) * (GLOW_REACH / LAYERS)
-			local alpha = 0.0008 + 0.0165 * k * k
-			local layer = new("Frame", {
-				AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5),
-				Size = UDim2.new(0, 46 + extra * 2, 0, 26 + extra * 2),
-				BackgroundColor3 = outerColor:Lerp(innerColor, k), BackgroundTransparency = 1,
-				BorderSizePixel = 0, ZIndex = 1,
-			}, glowGroup)
-			corner(layer, UDim.new(1, 0))
-			glowLayers[i] = { layer, alpha }
-		end
-		local glowValue = new("NumberValue", { Value = 0 }, glowGroup)
-		glowValue.Changed:Connect(function(t)
-			for i = 1, #glowLayers do
-				local g = glowLayers[i]
-				g[1].BackgroundTransparency = 1 - g[2] * t
-			end
-		end)
-
-		local track = new("TextButton", {
-			Size = UDim2.fromScale(1, 1), BackgroundColor3 = TRACK_OFF, BackgroundTransparency = 0,
-			AutoButtonColor = false, Text = "", ZIndex = 3,
-		}, holder)
-		corner(track, UDim.new(1, 0))
-		local trackStroke = new("UIStroke", { Thickness = 2, Color = STROKE_OFF, Transparency = 0.45, ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, track)
-		new("UIGradient", {
-			Rotation = 90,
-			Color = ColorSequence.new(WHITE, C(222, 222, 222)),
-		}, track)
-
-		local ballHalo = new("Frame", {
-			Position = UDim2.new(0, 0, 0.5, -12), Size = UDim2.fromOffset(24, 24), BackgroundColor3 = C(190, 255, 215),
-			BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 4,
-		}, track)
-		corner(ballHalo, UDim.new(1, 0))
-		local ball = new("Frame", {
-			Position = UDim2.new(0, 3, 0.5, -9), Size = UDim2.fromOffset(18, 18), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 5,
-		}, track)
-		corner(ball, UDim.new(1, 0))
-		new("UIGradient", { Rotation = 90, Color = ColorSequence.new(WHITE, C(222, 222, 222)) }, ball)
-
-		local obj = { Type = "Toggle", CurrentValue = o.CurrentValue == true, Name = o.Name }
-		local function visual(on, animate)
-			apply(track, { BackgroundColor3 = on and TRACK_ON or TRACK_OFF }, animate, 0.4)
-			apply(trackStroke, { Color = on and STROKE_ON or STROKE_OFF, Transparency = on and 0.1 or 0.45 }, animate, 0.4)
-			if animate then
-				glowGroup.Visible = true
-				tw(glowValue, 0.45, { Value = on and 1 or 0 }).Completed:Connect(function()
-					if not obj.CurrentValue and glowValue.Value <= 0 then
-						glowGroup.Visible = false
-					end
-				end)
-			else
-				glowValue.Value = on and 1 or 0
-				glowGroup.Visible = on
-			end
-			apply(ballHalo, {
-				Position = on and UDim2.new(1, -24, 0.5, -12) or UDim2.new(0, 0, 0.5, -12),
-				BackgroundTransparency = on and 0.55 or 1,
-			}, animate, 0.35)
-			apply(ball, { Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9) }, animate, 0.35)
-		end
-		function obj:Set(v)
-			obj.CurrentValue = v == true
-			visual(obj.CurrentValue, true)
-			safe(o.Callback, obj.CurrentValue)
-			autosave()
-		end
-		local hit = new("TextButton", {
-			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, AutoButtonColor = false, Text = "", ZIndex = 10,
-		}, f)
-		safeTap(hit, page, function()
-			haptic()
-			overlayFlash(f, 8, WHITE, 0.88, 0.4)
-			obj:Set(not obj.CurrentValue)
-		end)
-		visual(obj.CurrentValue, false)
-		register(o.Name, "Toggle", f, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateSlider(o)
-		local min, max = o.Range[1], o.Range[2]
-		local inc = o.Increment or 1
-		local f = row(page, 54, nextOrder())
-		makeLabel(f, { Position = UDim2.fromOffset(12, 6), Size = UDim2.new(0.6, -12, 0, 18), Text = o.Name, Font = Enum.Font.GothamMedium, TextSize = 14 })
-		local valLbl = makeLabel(f, {
-			AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 6), Size = UDim2.new(0.4, 0, 0, 18),
-			TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = MUTED, TextSize = 12,
-		})
-		local track = new("Frame", {
-			Position = UDim2.new(0, 12, 0, 36), Size = UDim2.new(1, -24, 0, 6), BackgroundColor3 = C(58, 62, 76), BorderSizePixel = 0,
-		}, f)
-		corner(track, UDim.new(1, 0))
-		local fill = new("Frame", { Size = UDim2.new(0, 0, 1, 0), BorderSizePixel = 0 }, track)
-		themed(fill, "BackgroundColor3", "Accent")
-		corner(fill, UDim.new(1, 0))
-		local knob = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(14, 14),
-			BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 2,
-		}, track)
-		corner(knob, UDim.new(1, 0))
-		metalStroke(knob, 1.5)
-		local hit = new("TextButton", {
-			Position = UDim2.new(0, 0, 0, 26), Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1, Text = "",
-		}, f)
-
-		local obj = { Type = "Slider", CurrentValue = o.CurrentValue or min, Name = o.Name }
-		local function round(v)
-			v = math.clamp(v, min, max)
-			v = math.floor((v - min) / inc + 0.5) * inc + min
-			return math.clamp(math.floor(v * 10000 + 0.5) / 10000, min, max)
-		end
-		local function visual(v)
-			local p = (max == min) and 0 or (v - min) / (max - min)
-			fill.Size = UDim2.new(p, 0, 1, 0)
-			knob.Position = UDim2.new(p, 0, 0.5, 0)
-			valLbl.Text = tostring(v) .. (o.Suffix and (" " .. o.Suffix) or "")
-		end
-		obj.CurrentValue = round(obj.CurrentValue)
-		visual(obj.CurrentValue)
-
-		local dragging = false
-		local function update(x)
-			local rel = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
-			local v = round(min + rel * (max - min))
-			if v ~= obj.CurrentValue then
-				obj.CurrentValue = v
-				visual(v)
-				safe(o.Callback, v)
-				autosave()
-			end
-		end
-		hit.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				dragging = true
-				page.ScrollingEnabled = false
-				update(input.Position.X)
-			end
-		end)
-		bind(UserInputService.InputChanged, function(input)
-			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-				update(input.Position.X)
-			end
-		end)
-		bind(UserInputService.InputEnded, function(input)
-			if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-				dragging = false
-				page.ScrollingEnabled = true
-			end
-		end)
-		function obj:Set(v)
-			obj.CurrentValue = round(tonumber(v) or min)
-			visual(obj.CurrentValue)
-			safe(o.Callback, obj.CurrentValue)
-			autosave()
-		end
-		register(o.Name, "Slider", f, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateDropdown(o)
-		local options = o.Options or {}
-		local multiple = o.MultipleOptions == true
-		local ex = expandable(page, nextOrder(), o.Name, 0)
-		local valueLbl = makeLabel(ex.Head, {
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -38, 0.5, 0), Size = UDim2.new(0.4, 0, 0, 18),
-			TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = MUTED, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd,
-		})
-		local list = new("ScrollingFrame", {
-			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
-			CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y,
-		}, ex.Body)
-		themed(list, "ScrollBarImageColor3", "Accent")
-		new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, list)
-		pad(list, 3, 8, 3, 3)
-
-		local selected = {}
-		local buttons = {}
-		local obj = { Type = "Dropdown", CurrentOption = {}, Name = o.Name }
-		local function ordered()
-			local r = {}
-			for _, opt in ipairs(options) do
-				if selected[opt] then
-					table.insert(r, opt)
-				end
-			end
-			return r
-		end
-		local function paint()
-			for opt, b in pairs(buttons) do
-				b.TextColor3 = selected[opt] and Theme.Accent or TEXT
-			end
-			local cur = ordered()
-			valueLbl.Text = #cur > 0 and table.concat(cur, ", ") or "None"
-		end
-		local function commit(silent)
-			obj.CurrentOption = ordered()
-			paint()
-			if not silent then
-				safe(o.Callback, obj.CurrentOption)
-				autosave()
-			end
-		end
-		local function build()
-			for _, b in pairs(buttons) do
-				b.Parent:Destroy()
-			end
-			buttons = {}
-			for i, opt in ipairs(options) do
-				local _, b = makeButton(list, tostring(opt), i, 30)
-				buttons[opt] = b
-				b.Activated:Connect(function()
-					if multiple then
-						selected[opt] = not selected[opt] or nil
-					else
-						selected = { [opt] = true }
-						ex.SetOpen(false)
-					end
-					commit(false)
-				end)
-			end
-			local h = math.min(#options * 36 + 8, 182)
-			if ex.IsOpen() then
-				ex.SetOpen(true, h)
-			end
-			ex.Height = h
-			paint()
-		end
-		local origSetOpen = ex.SetOpen
-		ex.SetOpen = function(v, h)
-			origSetOpen(v, h or ex.Height)
-		end
-
-		local initial = o.CurrentOption or {}
-		if type(initial) == "string" then
-			initial = { initial }
-		end
-		for _, v in ipairs(initial) do
-			selected[v] = true
-		end
-		build()
-		commit(true)
-
-		function obj:Set(v)
-			selected = {}
-			if type(v) == "string" then
-				v = { v }
-			end
-			for _, x in ipairs(v or {}) do
-				selected[x] = true
-			end
-			commit(false)
-		end
-		function obj:Refresh(newOptions)
-			options = newOptions or {}
-			for k in pairs(selected) do
-				if not table.find(options, k) then
-					selected[k] = nil
-				end
-			end
-			build()
-			commit(true)
-		end
-		table.insert(themeHooks, paint)
-		register(o.Name, "Dropdown", ex.Head, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateInput(o)
-		local f = row(page, 40, nextOrder())
-		makeLabel(f, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.5, -12, 1, 0), Text = o.Name, Font = Enum.Font.GothamMedium, TextSize = 14 })
-		local box = new("Frame", {
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0.42, 0, 0, 26),
-			BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0,
-		}, f)
-		corner(box, 6)
-		metalStroke(box, 1.5)
-		local tb = new("TextBox", {
-			Position = UDim2.fromOffset(6, 0), Size = UDim2.new(1, -12, 1, 0), BackgroundTransparency = 1, ClearTextOnFocus = false,
-			PlaceholderText = o.PlaceholderText or "", PlaceholderColor3 = MUTED, Text = o.CurrentValue or "",
-			Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
-		}, box)
-		local obj = { Type = "Input", CurrentValue = o.CurrentValue or "", Name = o.Name }
-		tb.FocusLost:Connect(function(enter)
-			obj.CurrentValue = tb.Text
-			if enter then
-				flashGlow(box, 6, 0.4)
-				overlayFlash(f, 8, Theme.Flash, 0.82, 0.6)
-			end
-			safe(o.Callback, tb.Text)
-			autosave()
-			if o.RemoveTextAfterFocusLost then
-				tb.Text = ""
-			end
-		end)
-		function obj:Set(t)
-			tb.Text = tostring(t)
-			obj.CurrentValue = tb.Text
-			safe(o.Callback, tb.Text)
-			autosave()
-		end
-		register(o.Name, "Input", f, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateCodeInput(o)
-		local height = o.Height or 180
-		local f = row(page, height, nextOrder())
-		makeLabel(f, {
-			Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -110, 0, 34),
-			Text = o.Name or "Code input", Font = Enum.Font.GothamMedium, TextSize = 13,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-		})
-		local clearFrame, clearBtn = makeButton(f, "Clear", 1, 24)
-		clearFrame.AnchorPoint = Vector2.new(1, 0)
-		clearFrame.Position = UDim2.new(1, -8, 0, 5)
-		clearFrame.Size = UDim2.fromOffset(78, 24)
-		clearBtn.TextSize = 12
-
-		local box = new("Frame", {
-			Position = UDim2.fromOffset(8, 34), Size = UDim2.new(1, -16, 1, -42),
-			BackgroundColor3 = C(14, 16, 22), BorderSizePixel = 0, ClipsDescendants = true,
-		}, f)
-		corner(box, 6)
-		metalStroke(box, 1)
-		local scroll = new("ScrollingFrame", {
-			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
-			CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-			ScrollingDirection = Enum.ScrollingDirection.Y,
-		}, box)
-		themed(scroll, "ScrollBarImageColor3", "Accent")
-		local tb = new("TextBox", {
-			Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1,
-			ClearTextOnFocus = false, MultiLine = true, TextWrapped = true,
-			PlaceholderText = o.PlaceholderText or "Write your code here...", PlaceholderColor3 = MUTED,
-			Text = o.CurrentValue or "", Font = Enum.Font.Code, TextSize = 12, TextColor3 = TEXT,
-			TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-		}, scroll)
-		pad(tb, 6, 8, 6, 8)
-		new("UISizeConstraint", { MinSize = Vector2.new(0, math.max(height - 44, 20)) }, tb)
-
-		local obj = { Type = "CodeInput", CurrentValue = o.CurrentValue or "", Name = o.Name or "Code input" }
-		local lastText, lastCursor = tb.Text, #tb.Text + 1
-		local reopening = false
-		tb:GetPropertyChangedSignal("Text"):Connect(function()
-			if tb:IsFocused() then
-				lastText = tb.Text
-			end
-		end)
-		tb:GetPropertyChangedSignal("CursorPosition"):Connect(function()
-			if tb:IsFocused() and tb.CursorPosition > 0 then
-				lastCursor = tb.CursorPosition
-			end
-		end)
-		tb.Focused:Connect(function()
-			if reopening then
-				return
-			end
-			lastText = tb.Text
-			lastCursor = tb.CursorPosition > 0 and tb.CursorPosition or (#tb.Text + 1)
-		end)
-		tb.FocusLost:Connect(function(enter)
-			if enter then
-				local txt = tb.Text
-				local pos = math.clamp(lastCursor, 1, #txt + 1)
-				reopening = true
-				if txt == lastText then
-					tb.Text = txt:sub(1, pos - 1) .. "\n" .. txt:sub(pos)
-					pos += 1
-				else
-					pos = math.clamp(lastCursor, 1, #tb.Text + 1)
-				end
-				lastText = tb.Text
-				task.defer(function()
-					if tb.Parent then
-						tb:CaptureFocus()
-						pcall(function()
-							tb.CursorPosition = math.clamp(pos, 1, #tb.Text + 1)
-						end)
-					end
-					task.delay(0.15, function()
-						reopening = false
-					end)
-				end)
-				return
-			end
-			if reopening then
-				return
-			end
-			obj.CurrentValue = tb.Text
-			flashGlow(box, 6, 0.4)
-			safe(o.Callback, tb.Text)
-			autosave()
-		end)
-		clearBtn.Activated:Connect(function()
-			tb.Text = ""
-			obj.CurrentValue = ""
-			flashGlow(box, 6, 0.4)
-			safe(o.Callback, "")
-			autosave()
-		end)
-		function obj:Set(t)
-			tb.Text = tostring(t)
-			obj.CurrentValue = tb.Text
-			safe(o.Callback, tb.Text)
-			autosave()
-		end
-		function obj:Get()
-			return tb.Text
-		end
-		register(o.Name or "Code input", "Input", f, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateMessageInput(o)
-		local name = o.Name or "Message"
-		local f = row(page, 40, nextOrder())
-		local sendFrame, sendBtn = makeButton(f, o.ButtonText or "Send", 1, 26)
-		sendFrame.AnchorPoint = Vector2.new(1, 0.5)
-		sendFrame.Position = UDim2.new(1, -8, 0.5, 0)
-		sendFrame.Size = UDim2.fromOffset(64, 26)
-		sendBtn.TextSize = 12
-		local box = new("Frame", {
-			Position = UDim2.fromOffset(8, 7), Size = UDim2.new(1, -84, 0, 26),
-			BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0,
-		}, f)
-		corner(box, 6)
-		metalStroke(box, 1.5)
-		local tb = new("TextBox", {
-			Position = UDim2.fromOffset(6, 0), Size = UDim2.new(1, -12, 1, 0), BackgroundTransparency = 1, ClearTextOnFocus = false,
-			PlaceholderText = o.PlaceholderText or name, PlaceholderColor3 = MUTED, Text = "",
-			Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-		}, box)
-		if o.NumbersOnly then
-			numericKeyboard(tb)
-			tb:GetPropertyChangedSignal("Text"):Connect(function()
-				local clean = (tb.Text:gsub("[^%d%.%-]", ""))
-				if clean ~= tb.Text then
-					tb.Text = clean
-				end
-			end)
-		end
-
-		local obj = { Type = "MessageInput", CurrentValue = "", Name = name }
-		local function send()
-			local text = (tb.Text:gsub("^%s+", ""):gsub("%s+$", ""))
-			if text == "" then
-				return
-			end
-			obj.CurrentValue = text
-			flashGlow(box, 6, 0.4)
-			safe(o.Callback, text, tonumber(text))
-			if o.ClearOnSend ~= false then
-				tb.Text = ""
-			end
-			if o.KeepFocus == true then
-				task.delay(0.03, function()
-					if tb.Parent then
-						tb:CaptureFocus()
-					end
-				end)
-			end
-		end
-		tb.FocusLost:Connect(function(enter)
-			if enter then
-				send()
-			end
-		end)
-		sendBtn.Activated:Connect(send)
-		function obj:Set(t)
-			tb.Text = tostring(t)
-		end
-		function obj:Send(t)
-			if t ~= nil then
-				tb.Text = tostring(t)
-			end
-			send()
-		end
-		register(name, "Input", f, tab)
-		return obj
-	end
-
-	function api:CreatePowerInput(o)
-		local decimal = o.AllowDecimal == true
-		local negative = o.AllowNegative == true
-		local function clean(s)
-			s = tostring(s)
-			local out, dot = "", false
-			for i = 1, #s do
-				local ch = s:sub(i, i)
-				if ch:match("%d") then
-					out = out .. ch
-				elseif ch == "." and decimal and not dot then
-					dot = true
-					out = out .. ch
-				elseif ch == "-" and negative and #out == 0 then
-					out = out .. ch
-				end
-			end
-			return out
-		end
-		local function limitValue(n)
-			if o.Min then
-				n = math.max(n, o.Min)
-			end
-			if o.Max then
-				n = math.min(n, o.Max)
-			end
-			return n
-		end
-		local function fmt(n)
-			if n == math.floor(n) then
-				return string.format("%d", n)
-			end
-			return tostring(n)
-		end
-
-		local f = row(page, 40, nextOrder())
-		makeLabel(f, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.5, -12, 1, 0), Text = o.Name, Font = Enum.Font.GothamMedium, TextSize = 14 })
-		local box = new("Frame", {
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.new(0.3, 0, 0, 26),
-			BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0,
-		}, f)
-		corner(box, 6)
-		metalStroke(box, 1.5)
-		local startValue = limitValue(tonumber(o.CurrentValue) or o.Min or 0)
-		local tb = new("TextBox", {
-			Position = UDim2.fromOffset(6, 0), Size = UDim2.new(1, -12, 1, 0), BackgroundTransparency = 1,
-			ClearTextOnFocus = o.ClearTextOnFocus ~= false, PlaceholderText = o.PlaceholderText or "0",
-			PlaceholderColor3 = MUTED, Text = fmt(startValue), Font = Enum.Font.GothamMedium, TextSize = 12,
-			TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Center,
-		}, box)
-		numericKeyboard(tb)
-		tb:GetPropertyChangedSignal("Text"):Connect(function()
-			local c = clean(tb.Text)
-			if c ~= tb.Text then
-				tb.Text = c
-			end
-		end)
-
-		local obj = { Type = "PowerInput", CurrentValue = startValue, Name = o.Name }
-		tb.FocusLost:Connect(function(enter)
-			if enter then
-				local n = tonumber(clean(tb.Text))
-				if n == nil then
-					tb.Text = fmt(obj.CurrentValue)
-					return
-				end
-				n = limitValue(n)
-				obj.CurrentValue = n
-				tb.Text = fmt(n)
-				flashGlow(box, 6, 0.4)
-				overlayFlash(f, 8, Theme.Flash, 0.82, 0.6)
-				safe(o.Callback, n)
-				autosave()
-			else
-				tb.Text = fmt(obj.CurrentValue)
-			end
-		end)
-		function obj:Set(v)
-			local n = tonumber(v)
-			if n == nil then
-				return
-			end
-			n = limitValue(n)
-			obj.CurrentValue = n
-			tb.Text = fmt(n)
-			safe(o.Callback, n)
-			autosave()
-		end
-		register(o.Name, "Input", f, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateKeybind(o)
-		local f = row(page, 40, nextOrder())
-		makeLabel(f, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.5, -12, 1, 0), Text = o.Name, Font = Enum.Font.GothamMedium, TextSize = 14 })
-		local obj = { Type = "Keybind", CurrentKeybind = o.CurrentKeybind or "None", Name = o.Name }
-		local btn = new("TextButton", {
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(96, 26),
-			BackgroundColor3 = C(20, 22, 28), AutoButtonColor = false, Text = obj.CurrentKeybind,
-			Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = TEXT,
-		}, f)
-		corner(btn, 6)
-		metalStroke(btn, 1.5)
-		local listening = false
-		local function setKey(name, silent)
-			obj.CurrentKeybind = name
-			btn.Text = name
-			if not silent then
-				if o.OnSet then
-					pcall(o.OnSet, name)
-				end
-				autosave()
-			end
-		end
-		btn.Activated:Connect(function()
-			listening = true
-			SpaceHub._listening = true
-			btn.Text = "..."
-		end)
-		bind(UserInputService.InputBegan, function(input, gp)
-			if listening then
-				if input.UserInputType == Enum.UserInputType.Keyboard then
-					listening = false
-					task.defer(function()
-						SpaceHub._listening = false
-					end)
-					if input.KeyCode == Enum.KeyCode.Escape then
-						btn.Text = obj.CurrentKeybind
-					else
-						setKey(input.KeyCode.Name)
-					end
-				end
-				return
-			end
-			if gp or SpaceHub._listening then
-				return
-			end
-			if input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == obj.CurrentKeybind then
-				if o.HoldToInteract then
-					safe(o.Callback, true)
-				else
-					safe(o.Callback, obj.CurrentKeybind)
-				end
-			end
-		end)
-		bind(UserInputService.InputEnded, function(input)
-			if o.HoldToInteract and input.KeyCode ~= Enum.KeyCode.Unknown and input.KeyCode.Name == obj.CurrentKeybind then
-				safe(o.Callback, false)
-			end
-		end)
-		function obj:Set(name)
-			setKey(tostring(name))
-		end
-		register(o.Name, "Keybind", f, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateColorPicker(o)
-		local ex = expandable(page, nextOrder(), o.Name, 156)
-		local color = o.Color or WHITE
-		local h, s, v = color:ToHSV()
-		local swatch = new("Frame", {
-			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -40, 0.5, 0), Size = UDim2.fromOffset(40, 22),
-			BackgroundColor3 = color, BorderSizePixel = 0,
-		}, ex.Head)
-		corner(swatch, 6)
-		metalStroke(swatch, 1.5)
-
-		local sv = new("Frame", {
-			Position = UDim2.fromOffset(10, 10), Size = UDim2.new(1, -62, 0, 136),
-			BackgroundColor3 = Color3.fromHSV(h, 1, 1), BorderSizePixel = 0,
-		}, ex.Body)
-		corner(sv, 6)
-		local white = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = WHITE, BorderSizePixel = 0 }, sv)
-		corner(white, 6)
-		new("UIGradient", { Transparency = NumberSequence.new(0, 1) }, white)
-		local black = new("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0 }, sv)
-		corner(black, 6)
-		new("UIGradient", { Rotation = 90, Transparency = NumberSequence.new(1, 0) }, black)
-		local svKnob = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1, ZIndex = 3,
-		}, sv)
-		corner(svKnob, UDim.new(1, 0))
-		new("UIStroke", { Thickness = 2, Color = WHITE }, svKnob)
-
-		local hue = new("Frame", {
-			Position = UDim2.new(1, -44, 0, 10), Size = UDim2.fromOffset(30, 136), BackgroundColor3 = WHITE, BorderSizePixel = 0,
-		}, ex.Body)
-		corner(hue, 6)
-		new("UIGradient", {
-			Rotation = 90,
-			Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, C(255, 0, 0)), ColorSequenceKeypoint.new(0.17, C(255, 255, 0)),
-				ColorSequenceKeypoint.new(0.33, C(0, 255, 0)), ColorSequenceKeypoint.new(0.5, C(0, 255, 255)),
-				ColorSequenceKeypoint.new(0.67, C(0, 0, 255)), ColorSequenceKeypoint.new(0.83, C(255, 0, 255)),
-				ColorSequenceKeypoint.new(1, C(255, 0, 0)),
-			}),
-		}, hue)
-		local hueKnob = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(1, 6, 0, 6), BackgroundColor3 = WHITE, BorderSizePixel = 0, ZIndex = 3,
-		}, hue)
-		corner(hueKnob, 3)
-		new("UIStroke", { Thickness = 1, Color = Color3.new(0, 0, 0) }, hueKnob)
-
-		local obj = { Type = "ColorPicker", Color = color, Name = o.Name }
-		local function refresh(fire)
-			color = Color3.fromHSV(h, s, v)
-			obj.Color = color
-			swatch.BackgroundColor3 = color
-			sv.BackgroundColor3 = Color3.fromHSV(h, 1, 1)
-			svKnob.Position = UDim2.new(s, 0, 1 - v, 0)
-			hueKnob.Position = UDim2.new(0.5, 0, h, 0)
-			if fire then
-				safe(o.Callback, color)
-				autosave()
-			end
-		end
-		refresh(false)
-
-		local mode
-		local function drag(pos)
-			if mode == "sv" then
-				s = math.clamp((pos.X - sv.AbsolutePosition.X) / math.max(sv.AbsoluteSize.X, 1), 0, 1)
-				v = 1 - math.clamp((pos.Y - sv.AbsolutePosition.Y) / math.max(sv.AbsoluteSize.Y, 1), 0, 1)
-			elseif mode == "hue" then
-				h = math.clamp((pos.Y - hue.AbsolutePosition.Y) / math.max(hue.AbsoluteSize.Y, 1), 0, 1)
-			else
-				return
-			end
-			refresh(true)
-		end
-		local function start(m)
-			return function(input)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-					mode = m
-					page.ScrollingEnabled = false
-					drag(screenPos(input))
+	local function checkContainer(container)
+		if not container then return nil end
+		for _, item in ipairs(container:GetChildren()) do
+			if item:IsA("Tool") then
+				local name = item.Name:lower()
+				if name:find("knife") or name:find("cuchillo") then
+					return "Murderer"
+				elseif name:find("gun") or name:find("pistola") or name:find("revolver") then
+					return "Sheriff"
 				end
 			end
 		end
-		sv.InputBegan:Connect(start("sv"))
-		hue.InputBegan:Connect(start("hue"))
-		bind(UserInputService.InputChanged, function(input)
-			if mode and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-				drag(screenPos(input))
-			end
-		end)
-		bind(UserInputService.InputEnded, function(input)
-			if mode and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-				mode = nil
-				page.ScrollingEnabled = true
-			end
-		end)
-		function obj:Set(c)
-			h, s, v = c:ToHSV()
-			refresh(true)
-		end
-		register(o.Name, "ColorPicker", ex.Head, tab)
-		flag(o, obj)
-		return obj
-	end
-
-	function api:CreateCodeBlock(o)
-		local height = o.Height or 240
-		local f = row(page, height, nextOrder())
-		makeLabel(f, {
-			Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -110, 0, 34),
-			Text = o.Title or "Code", Font = Enum.Font.GothamMedium, TextSize = 13,
-			TextTruncate = Enum.TextTruncate.AtEnd,
-		})
-		local copyFrame, copyBtn = makeButton(f, "Copy", 1, 24)
-		copyFrame.AnchorPoint = Vector2.new(1, 0)
-		copyFrame.Position = UDim2.new(1, -8, 0, 5)
-		copyFrame.Size = UDim2.fromOffset(78, 24)
-		copyBtn.TextSize = 12
-
-		local box = new("Frame", {
-			Position = UDim2.fromOffset(8, 34), Size = UDim2.new(1, -16, 1, -42),
-			BackgroundColor3 = C(14, 16, 22), BorderSizePixel = 0,
-		}, f)
-		corner(box, 6)
-		metalStroke(box, 1)
-		local scroll = new("ScrollingFrame", {
-			Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
-			CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.XY,
-			ScrollingDirection = Enum.ScrollingDirection.XY,
-		}, box)
-		themed(scroll, "ScrollBarImageColor3", "Accent")
-		pad(scroll, 6, 8, 6, 8)
-		local list = new("Frame", {
-			Size = UDim2.new(0, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.XY, BackgroundTransparency = 1,
-		}, scroll)
-		new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, list)
-
-		local obj = { Type = "CodeBlock", CurrentValue = o.Code or "", Name = o.Title or "Code" }
-		local function render(code)
-			for _, c in ipairs(list:GetChildren()) do
-				if c:IsA("TextLabel") then
-					c:Destroy()
-				end
-			end
-			local lines = string.split((tostring(code):gsub("\r", "")), "\n")
-			local chunk, n, idx = {}, 0, 0
-			local function flush()
-				if #chunk == 0 then
-					return
-				end
-				idx += 1
-				new("TextLabel", {
-					LayoutOrder = idx, Size = UDim2.new(0, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.XY,
-					BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 12, TextColor3 = TEXT,
-					TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-					TextWrapped = false, RichText = false, Text = table.concat(chunk, "\n"),
-				}, list)
-				chunk, n = {}, 0
-			end
-			for _, line in ipairs(lines) do
-				n += 1
-				chunk[n] = (line:gsub("\t", "    "))
-				if n >= 60 then
-					flush()
-				end
-			end
-			flush()
-		end
-		render(obj.CurrentValue)
-
-		local busy = false
-		copyBtn.Activated:Connect(function()
-			if busy then
-				return
-			end
-			busy = true
-			local ok = copyText(obj.CurrentValue)
-			copyBtn.Text = ok and "Copied!" or "Unavailable"
-			copyBtn.TextColor3 = ok and GREEN or RED
-			task.delay(1.2, function()
-				copyBtn.Text = "Copy"
-				copyBtn.TextColor3 = TEXT
-				busy = false
-			end)
-		end)
-		function obj:Set(code)
-			obj.CurrentValue = tostring(code)
-			render(obj.CurrentValue)
-		end
-		register(o.Title or "Code", "Label", f, tab)
-		return obj
-	end
-
-	function api:CreateFloatingButtons(o)
-		o = o or {}
-		local maxCount = o.Max or 40
-		local count = math.clamp(math.floor(o.Count or 5), 1, maxCount)
-		local names = o.Names or {}
-		local size = o.Size or 56
-		local fgui
-		local conns = {}
-
-		local function destroyButtons()
-			for _, c in ipairs(conns) do
-				pcall(function()
-					c:Disconnect()
-				end)
-			end
-			table.clear(conns)
-			if fgui then
-				fgui:Destroy()
-				fgui = nil
-			end
-		end
-
-		local function build()
-			if fgui and fgui.Parent then
-				return
-			end
-			fgui = createGui("SpaceHubFloating_" .. tostring(o.Flag or o.Name or "Buttons"))
-			local vp = workspace.CurrentCamera.ViewportSize
-			local perRow = math.max(1, math.floor((vp.X - 40) / (size + 10)))
-			perRow = math.min(perRow, 5)
-
-			for i = 1, count do
-				local col, rowN = (i - 1) % perRow, math.floor((i - 1) / perRow)
-				local frame = new("Frame", {
-					Position = UDim2.fromOffset(20 + col * (size + 10), vp.Y * 0.35 + rowN * (size + 10)),
-					Size = UDim2.fromOffset(size, size), BackgroundColor3 = WHITE, BorderSizePixel = 0, Active = true,
-				}, fgui)
-				corner(frame, 12)
-				new("UIGradient", { Rotation = 90, Color = ColorSequence.new(STEEL_A, STEEL_B) }, frame)
-				metalStroke(frame, 2)
-				makeLabel(frame, {
-					Size = UDim2.fromScale(1, 1), Text = tostring(names[i] or i), Font = Enum.Font.GothamBold,
-					TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true,
-				})
-				local hit = new("TextButton", {
-					Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 5,
-				}, frame)
-
-				local press
-				hit.InputBegan:Connect(function(input)
-					local t = input.UserInputType
-					if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
-						press = {
-							start = input.Position, kind = t, moved = false,
-							pos = Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset),
-						}
-					end
-				end)
-				table.insert(conns, UserInputService.InputChanged:Connect(function(input)
-					if not press then
-						return
-					end
-					if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
-						return
-					end
-					local d = input.Position - press.start
-					if not press.moved and d.Magnitude > 8 then
-						press.moved = true
-					end
-					if press.moved then
-						local v = workspace.CurrentCamera.ViewportSize
-						frame.Position = UDim2.fromOffset(
-							math.clamp(press.pos.X + d.X, 0, v.X - size),
-							math.clamp(press.pos.Y + d.Y, 0, v.Y - size)
-						)
-					end
-				end))
-				table.insert(conns, UserInputService.InputEnded:Connect(function(input)
-					if press and input.UserInputType == press.kind then
-						local p = press
-						press = nil
-						if not p.moved then
-							flashGlow(frame, 12, 0.5)
-							safe(o.Callback, i, names[i] or i)
-						end
-					end
-				end))
-			end
-			fgui.Destroying:Connect(function()
-				for _, c in ipairs(conns) do
-					pcall(function()
-						c:Disconnect()
-					end)
-				end
-			end)
-		end
-
-		local obj = api:CreateToggle({
-			Name = o.Name or "button float",
-			CurrentValue = o.CurrentValue == true,
-			Flag = o.Flag,
-			Callback = function(on)
-				if on then
-					build()
-				else
-					destroyButtons()
-				end
-				safe(o.OnToggle, on)
-			end,
-		})
-		obj.Type = "Toggle"
-		if obj.CurrentValue then
-			build()
-		end
-		function obj:SetCount(n)
-			count = math.clamp(math.floor(tonumber(n) or count), 1, maxCount)
-			if obj.CurrentValue then
-				destroyButtons()
-				build()
-			end
-		end
-		local amount = api:CreatePowerInput({
-			Name = o.AmountName or "x amount",
-			CurrentValue = count, Min = 1, Max = maxCount, PlaceholderText = "5",
-			Flag = o.Flag and (o.Flag .. "_Amount") or nil,
-			Callback = function(n)
-				obj:SetCount(n)
-			end,
-		})
-		obj.Amount = amount
-		return obj
-	end
-
-	function api:CreateSpectate(o)
-		o = o or {}
-		local cam = workspace.CurrentCamera
-		local f = row(page, 172, nextOrder())
-
-		local function arrowButton(text, left)
-			local fr, b = makeButton(f, text, 1, 44)
-			fr.AnchorPoint = Vector2.new(left and 0 or 1, 0.5)
-			fr.Position = UDim2.new(left and 0 or 1, left and 12 or -12, 0, 64)
-			fr.Size = UDim2.fromOffset(44, 44)
-			b.TextSize = 22
-			b.Font = Enum.Font.GothamBold
-			return b
-		end
-		local prevBtn = arrowButton("<", true)
-		local nextBtn = arrowButton(">", false)
-
-		local ring = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 64), Size = UDim2.fromOffset(92, 92),
-			BackgroundColor3 = GREEN, BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 1,
-		}, f)
-		corner(ring, UDim.new(1, 0))
-		local photo = new("ImageLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 64), Size = UDim2.fromOffset(84, 84),
-			BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0, ZIndex = 2,
-		}, f)
-		corner(photo, UDim.new(1, 0))
-		metalStroke(photo, 2)
-		local photoHit = new("TextButton", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0, 64), Size = UDim2.fromOffset(84, 84),
-			BackgroundTransparency = 1, Text = "", ZIndex = 3,
-		}, f)
-		corner(photoHit, UDim.new(1, 0))
-
-		local nameLbl = makeLabel(f, {
-			Position = UDim2.fromOffset(12, 116), Size = UDim2.new(1, -24, 0, 22), Text = "", Font = Enum.Font.GothamBold,
-			TextSize = 14, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
-		})
-		local subLbl = makeLabel(f, {
-			Position = UDim2.fromOffset(12, 138), Size = UDim2.new(1, -24, 0, 18), Text = "", TextColor3 = MUTED,
-			TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center, TextTruncate = Enum.TextTruncate.AtEnd,
-		})
-
-		local list, idx, spectating = {}, 1, false
-		local thumbs = {}
-		local obj = { Type = "Spectate", CurrentValue = false, Name = o.Name or "Spectate" }
-
-		local function current()
-			return list[idx]
-		end
-		local function refreshList()
-			local cur = current()
-			list = {}
-			for _, p in ipairs(Players:GetPlayers()) do
-				if p ~= player then
-					table.insert(list, p)
-				end
-			end
-			table.sort(list, function(a, b)
-				return a.Name:lower() < b.Name:lower()
-			end)
-			idx = (cur and table.find(list, cur)) or math.clamp(idx, 1, math.max(#list, 1))
-		end
-		local function showCurrent()
-			local p = current()
-			if not p then
-				nameLbl.Text = "No players"
-				subLbl.Text = "Waiting for players..."
-				photo.Image = ""
-				return
-			end
-			nameLbl.Text = p.DisplayName
-			subLbl.Text = "@" .. p.Name .. (spectating and "  -  spectating" or "  -  tap photo to spectate")
-			if thumbs[p.UserId] then
-				photo.Image = thumbs[p.UserId]
-			else
-				photo.Image = ""
-				task.spawn(function()
-					local ok, img = pcall(function()
-						return Players:GetUserThumbnailAsync(p.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
-					end)
-					if ok and img then
-						thumbs[p.UserId] = img
-						if current() == p then
-							photo.Image = img
-						end
-					end
-				end)
-			end
-		end
-
-		local function resetCamera()
-			local ch = player.Character
-			local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-			if hum then
-				cam.CameraSubject = hum
-			end
-		end
-		local function stop()
-			if not spectating then
-				return
-			end
-			spectating = false
-			obj.CurrentValue = false
-			tw(ring, 0.25, { BackgroundTransparency = 1 })
-			resetCamera()
-			showCurrent()
-			safe(o.OnStop)
-			safe(o.Callback, current(), false)
-		end
-		local function start()
-			local p = current()
-			if not p or spectating then
-				return
-			end
-			spectating = true
-			obj.CurrentValue = true
-			tw(ring, 0.25, { BackgroundTransparency = 0.15 })
-			showCurrent()
-			safe(o.Callback, p, true)
-			task.spawn(function()
-				while spectating and f.Parent do
-					local t = current()
-					local hum = t and t.Character and t.Character:FindFirstChildOfClass("Humanoid")
-					if hum and cam.CameraSubject ~= hum then
-						cam.CameraSubject = hum
-					end
-					task.wait(0.25)
-				end
-			end)
-		end
-
-		local function step(dir)
-			if #list == 0 then
-				return
-			end
-			idx = (idx - 1 + dir) % #list + 1
-			haptic()
-			showCurrent()
-		end
-		prevBtn.Activated:Connect(function()
-			step(-1)
-		end)
-		nextBtn.Activated:Connect(function()
-			step(1)
-		end)
-		photoHit.Activated:Connect(function()
-			haptic()
-			if spectating then
-				stop()
-			else
-				start()
-			end
-		end)
-
-		local function onPlayersChanged()
-			local before = current()
-			refreshList()
-			if spectating and (#list == 0 or before ~= current() and not table.find(list, before)) then
-				if #list == 0 then
-					stop()
-				end
-			end
-			showCurrent()
-		end
-		bind(Players.PlayerAdded, function()
-			task.defer(onPlayersChanged)
-		end)
-		bind(Players.PlayerRemoving, function()
-			task.defer(onPlayersChanged)
-		end)
-
-		function obj:Next()
-			step(1)
-		end
-		function obj:Previous()
-			step(-1)
-		end
-		function obj:Set(v)
-			if v then
-				start()
-			else
-				stop()
-			end
-		end
-		function obj:Refresh()
-			onPlayersChanged()
-		end
-
-		refreshList()
-		showCurrent()
-		register(o.Name or "Spectate", "Spectate", f, tab)
-		return obj
-	end
-
-	local extCtx = { Api = api, Page = page, Tab = tab, Register = register, Flag = flag, NextOrder = nextOrder }
-	for extName, ext in pairs(SpaceHub._extensions or {}) do
-		local original = api[extName]
-		if original == nil or ext.override then
-			local c = setmetatable({ Original = original }, { __index = extCtx })
-			api[extName] = function(_, o)
-				return ext.fn(c, o)
-			end
-		end
-	end
-
-	return api
-end
-
-local AE_DIRS = { "../Autoexecute/", "../autoexec/", "Autoexecute/", "autoexec/" }
-local LIB_URL = "https://raw.githubusercontent.com/hernapepellote2011-star/Official-space-hub/refs/heads/main/Space%20hub%20library.lua"
-local AE_OFF = "SpaceHub/ae_disabled.txt"
-
-local function aeConfig()
-	local ae = SpaceHub.AutoExecute
-	if ae == nil and SpaceHub._settings then
-		ae = SpaceHub._settings.AutoExecute
-	end
-	if ae == nil then
-		ae = { Url = LIB_URL, FileName = "SpaceHub_Library" }
-	end
-	return ae
-end
-
-local function aeFileName()
-	local ae = aeConfig()
-	local base = type(ae) == "table" and ae.FileName or nil
-	if not base then
-		local nm = tostring((SpaceHub._settings and SpaceHub._settings.Name) or "Menu")
-		base = "SpaceHub_" .. (nm:gsub("[^%w_%-]", "_"))
-	end
-	return (tostring(base):gsub("%.lua$", "")) .. ".lua"
-end
-
-local function aePayload()
-	local ae = aeConfig()
-	local body
-	if type(ae) == "string" then
-		body = ae:match("^https?://%S+$") and string.format("loadstring(game:HttpGet(%q))()", ae) or ae
-	elseif type(ae) == "table" then
-		if ae.Source then
-			body = tostring(ae.Source)
-		elseif ae.Url then
-			body = string.format("loadstring(game:HttpGet(%q))()", tostring(ae.Url))
-		end
-	end
-	if not body then
 		return nil
 	end
-	return table.concat({
-		"if not game:IsLoaded() then game.Loaded:Wait() end",
-		"local env = (getgenv and getgenv()) or _G",
-		"if env.__SpaceHubAutoExec then return end",
-		"env.__SpaceHubAutoExec = true",
-		"task.spawn(function()",
-		"\tlocal lp = game:GetService('Players').LocalPlayer",
-		"\twhile not lp do task.wait(0.5) lp = game:GetService('Players').LocalPlayer end",
-		"\tlp:WaitForChild('PlayerGui', 30)",
-		"\ttask.wait(6)",
-		"\tlocal ok, err = pcall(function()",
-		body,
-		"\tend)",
-		"\tif not ok then warn('[SpaceHub AutoExec] ' .. tostring(err)) end",
-		"end)",
-	}, "\n")
+
+	return checkContainer(char) or checkContainer(bp) or "Innocent"
 end
 
-local function aeFind()
-	local name = aeFileName()
-	for _, dir in ipairs(AE_DIRS) do
-		local ok, exists = pcall(isfile, dir .. name)
-		if ok and exists then
-			return dir .. name
+local function findMurderer()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= Player and p.Character then
+			local hum = p.Character:FindFirstChildOfClass("Humanoid")
+			local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+			if hrp and hum and hum.Health > 0 and getPlayerRole(p) == "Murderer" then
+				return p, hrp, hum
+			end
 		end
 	end
 	return nil
 end
 
-function SpaceHub:SetAutoExecute(value)
-	self.AutoExecute = value
-end
+local SheriffAimbotEnabled, IgnoreWallsEnabled = false, false
+local MurdererReachEnabled, PreviewMeshEnabled = false, false
+local HitboxReachSize = 7
+local ESP_Murderer, ESP_Sheriff, ESP_Innocent = false, false, false
+local espCoinsActive, espGunActive = false, false
 
-function SpaceHub:IsAutoExecuteInstalled()
-	return aeFind() ~= nil
-end
+local aimbotConn, reachConn, espConn, scanConn, charConn
+local previewPart
+local gunIndicator
+local scanTimer = 0
 
-function SpaceHub:InstallAutoExecute()
-	local src = aePayload()
-	if not src then
-		return false, "No script set. Add AutoExecute = { Url = \"...\" } to CreateWindow."
-	end
+local antiEnabled, antiConn, antiToggle = false, nil, nil
+local flinging = false
+local flying, flyConn, lv, ao, att, flyToggle = false, nil, nil, nil, nil, nil
+local speed = 10
+local invisible, invConn, invParts, invToggle = false, nil, {}, nil
+local afToggle
+
+local unbindOnline
+
+local quickTab = Window:CreateTab("⚡ Rápido")
+local sheriffTab = Window:CreateTab("Sheriff")
+local murdererTab = Window:CreateTab("Asesino")
+local espTab = Window:CreateTab("ESP")
+local autofarmTab = Window:CreateTab("Autofarm")
+local improveTab = Window:CreateTab("Mejora del juego")
+local spectTab = Window:CreateTab("Espectador")
+local configTab = Window:CreateTab("Config")
+local reviewTab = Window:CreateTab("Reseñas")
+
+quickTab:CreateSection("Comunidad")
+local onlineLabel = quickTab:CreateLabel("Conectando...")
+unbindOnline = Online.bind(function(n)
+	if destroyed then return end
 	pcall(function()
-		if type(isfile) == "function" and isfile(AE_OFF) then
-			delfile(AE_OFF)
-		end
+		onlineLabel:Set(n and ("🟢 En línea hay " .. n .. " usando el guion") or "🔴 Sin conexión")
 	end)
-	local name = aeFileName()
-	for _, dir in ipairs(AE_DIRS) do
-		local path = dir .. name
-		local wrote = pcall(function()
-			if not dir:find("^%.%.") and type(isfolder) == "function" and not isfolder((dir:gsub("/$", ""))) then
-				error("folder missing")
-			end
-			writefile(path, src)
-		end)
-		if wrote then
-			local verified = true
-			if type(isfile) == "function" then
-				local okF, exists = pcall(isfile, path)
-				verified = okF and exists == true
-			end
-			if verified then
-				return true, path
-			end
-		end
-	end
-	local q = queue_on_teleport or (syn and syn.queue_on_teleport)
-	if q then
-		pcall(q, src)
-		return true, "teleport"
-	end
-	return false, "Could not write to the autoexec folder."
+end)
+
+quickTab:CreateSection("Acciones")
+
+local function stopAnti()
+	antiEnabled = false
+	if antiConn then antiConn:Disconnect() antiConn = nil end
 end
 
-function SpaceHub:RemoveAutoExecute()
-	pcall(function()
-		if type(isfolder) == "function" and type(makefolder) == "function" and not isfolder("SpaceHub") then
-			makefolder("SpaceHub")
-		end
-		writefile(AE_OFF, "1")
-	end)
-	if type(delfile) ~= "function" then
-		return false
-	end
-	local name, removed = aeFileName(), false
-	for _, dir in ipairs(AE_DIRS) do
-		local path = dir .. name
-		local ok, exists = pcall(isfile, path)
-		if ok and exists and pcall(delfile, path) then
-			removed = true
-		end
-	end
-	return removed
-end
-
-function SpaceHub:EnsureAutoExecute()
-	local okOff, off = pcall(function()
-		return type(isfile) == "function" and isfile(AE_OFF)
-	end)
-	if okOff and off then
-		return false
-	end
-	local found = aeFind()
-	if found then
-		local okR, cur = pcall(readfile, found)
-		local want = aePayload()
-		if want and okR and cur ~= want then
-			pcall(writefile, found, want)
-		end
-		return true
-	end
-	local ok, info = self:InstallAutoExecute()
-	if ok then
-		self:Notify({
-			Title = "Auto execute enabled",
-			Content = info == "teleport" and "Only runs when teleporting (autoexec folder not available)."
-				or ("Saved to " .. tostring(info)),
-			Duration = 4,
-		})
-	end
-	return ok
-end
-
-function SpaceHub:CreateWindow(settings)
-	settings = settings or {}
-	if self._window then
-		self:Destroy()
-	end
-	self._settings = settings
-	self.Flags = {}
-
-	if settings.Theme then
-		setThemeByName(settings.Theme)
-	end
-	if settings.KeySystem then
-		runKeySystem(settings)
-	end
-	if settings.LoadingScreen ~= false then
-		local ok, err = pcall(showLoading, settings)
-		if not ok then
-			warn("[Space Hub] Loading screen error: " .. tostring(err))
-		end
-	end
-
-	local Window = { Tabs = {} }
-	local gui = createGui("SpaceHubMenu")
-	local toggleKey = settings.ToggleKey or Enum.KeyCode.RightShift
-	local menuName = settings.Name or "Space Hub"
-
-	local function screen()
-		return workspace.CurrentCamera.ViewportSize
-	end
-	local function maxW()
-		return math.min(SIZE.MaxW, screen().X - 24)
-	end
-	local function maxH()
-		return math.min(SIZE.MaxH, screen().Y - 80)
-	end
-	local W = math.clamp(settings.Width or SIZE.Width, math.min(SIZE.MinW, maxW()), maxW())
-	local H = math.clamp(settings.Height or SIZE.Height, math.min(SIZE.MinH, maxH()), maxH())
-
-	local function limit(x, y, w, h)
-		local t = screen()
-		return Vector2.new(math.clamp(x, 30 - w / 2, t.X - 30 - w / 2), math.clamp(y, -h - 9, t.Y - h - 41))
-	end
-
-	local container = new("Frame", {
-		Size = UDim2.fromOffset(W, H),
-		Position = UDim2.fromOffset((screen().X - W) / 2, (screen().Y - H - 30) / 2),
-		BackgroundTransparency = 1,
-	}, gui)
-
-	local shadows = {}
-	for i = 1, 8 do
-		local extra = i * 1.2
-		local f = new("Frame", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 2), Size = UDim2.new(1, extra * 2, 1, extra * 2),
-			BackgroundColor3 = Color3.new(0, 0, 0), BackgroundTransparency = 1, BorderSizePixel = 0,
-		}, container)
-		table.insert(shadows, { f = f, c = corner(f, 12 + extra), extra = extra, final = 0.86 })
-	end
-
-	local frame = new("CanvasGroup", { Size = UDim2.fromScale(1, 1), BorderSizePixel = 0, GroupTransparency = 1 }, container)
-	themed(frame, "BackgroundColor3", "Background")
-	local frameCorner = corner(frame, 12)
-	themed(new("UIStroke", { Thickness = 1 }, frame), "Color", "Line")
-
-	local grab = new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 1, 14), Size = UDim2.fromOffset(190, 28), BackgroundTransparency = 1, Active = true,
-	}, container)
-	local bar = new("Frame", {
-		AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(120, 5),
-		BackgroundColor3 = BAR_GRAY, BorderSizePixel = 0,
-	}, grab)
-	corner(bar, UDim.new(1, 0))
-	local function barActive(v)
-		tw(bar, 0.2, { BackgroundColor3 = v and WHITE or BAR_GRAY, Size = v and UDim2.fromOffset(136, 5) or UDim2.fromOffset(120, 5) })
-		if not v then
-			tw(bar, 0.4, { Position = UDim2.fromScale(0.5, 0.5) }, Enum.EasingStyle.Back)
-		end
-	end
-
-	local header = new("Frame", { Size = UDim2.new(1, 0, 0, SIZE.Header), BackgroundTransparency = 1, Active = true }, frame)
-	local titleImg = new("ImageLabel", {
-		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 2, 0.5, -1), Size = UDim2.fromOffset(66, 36),
-		BackgroundTransparency = 1, Image = settings.TitleImage or ASSETS.Title, ScaleType = Enum.ScaleType.Fit,
-	}, header)
-	loadImage(titleImg, settings.TitleImage or ASSETS.Title, function()
-		titleImg.Image = ""
-		makeLabel(header, {
-			Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -130, 1, 0), Text = menuName,
-			Font = Enum.Font.GothamBold, TextSize = 15,
-		})
-	end)
-	local headerLine = new("Frame", { Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), BorderSizePixel = 0 }, header)
-	themed(headerLine, "BackgroundColor3", "Line")
-
-	local controls = new("CanvasGroup", {
-		Position = UDim2.new(1, -102, 0, 6), Size = UDim2.fromOffset(96, 30), BackgroundTransparency = 1, ZIndex = 3,
-	}, frame)
-	local function iconButton(id, symbol, x, parent)
-		local b = new("ImageButton", {
-			Position = UDim2.fromOffset(x, 0), Size = UDim2.fromOffset(30, 30), BackgroundTransparency = 1,
-			Image = id, ImageColor3 = ICON_IDLE, ScaleType = Enum.ScaleType.Fit,
-		}, parent or controls)
-		loadImage(b, id, function()
-			b.Image = ""
-			if symbol == "gear" then
-				drawGear(b)
-			else
-				makeLabel(b, { Size = UDim2.fromScale(1, 1), Text = symbol, Font = Enum.Font.GothamBold, TextSize = 20, TextXAlignment = Enum.TextXAlignment.Center })
-			end
-			tintIcon(b, ICON_IDLE, false)
-		end)
-		iconPress(b, b)
-		return b
-	end
-	local btnSettings = iconButton(ASSETS.Settings, "gear", 0)
-	local btnMin = iconButton(ASSETS.Minimize, "-", 32)
-	local btnClose = iconButton(ASSETS.Close, "x", 64)
-
-	local pillControls = new("CanvasGroup", {
-		Position = UDim2.new(1, -72, 0, 7), Size = UDim2.fromOffset(66, 30), BackgroundTransparency = 1,
-		GroupTransparency = 1, Visible = false, ZIndex = 3,
-	}, frame)
-	local btnMax = iconButton(ASSETS.Maximize, "+", 0, pillControls)
-	local btnMove = iconButton(ASSETS.Move, "=", 36, pillControls)
-
-	local body = new("CanvasGroup", {
-		Position = UDim2.fromOffset(0, SIZE.Header), Size = UDim2.new(1, 0, 1, -SIZE.Header), BackgroundTransparency = 1,
-	}, frame)
-	local bottomShade = new("Frame", {
-		AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 0, 1, 0), Size = UDim2.new(1, 0, 0.7, 0),
-		BackgroundColor3 = Color3.new(0, 0, 0), BorderSizePixel = 0, ZIndex = 1,
-	}, body)
-	new("UIGradient", {
-		Rotation = 90,
-		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.4) }),
-	}, bottomShade)
-
-	local mainView = new("CanvasGroup", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, ZIndex = 2 }, body)
-
-	local tabList = new("ScrollingFrame", {
-		BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3, CanvasSize = UDim2.new(),
-	}, mainView)
-	themed(tabList, "ScrollBarImageColor3", "Accent")
-	local tabLayout = new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, tabList)
-	local tabPad = new("UIPadding", {}, tabList)
-
-	local sepV = new("Frame", { Position = UDim2.fromOffset(166, 8), Size = UDim2.new(0, 1, 1, -16), BorderSizePixel = 0 }, mainView)
-	themed(sepV, "BackgroundColor3", "Line")
-	local sepH = new("Frame", { Position = UDim2.fromOffset(8, 54), Size = UDim2.new(1, -16, 0, 1), BorderSizePixel = 0 }, mainView)
-	themed(sepH, "BackgroundColor3", "Line")
-
-	local content = new("CanvasGroup", { BackgroundTransparency = 1 }, mainView)
-
-	local card = new("Frame", {
-		AnchorPoint = Vector2.new(0, 1), Position = UDim2.new(0, 8, 1, -8), Size = UDim2.fromOffset(150, SIZE.Profile),
-		BackgroundTransparency = 0.85, BorderSizePixel = 0, ZIndex = 4,
-	}, mainView)
-	themed(card, "BackgroundColor3", "Accent")
-	corner(card, 10)
-	metalStroke(card, 1.5)
-	local avatars = {}
-	local miniPhoto = new("ImageLabel", {
-		Position = UDim2.fromOffset(8, 10), Size = UDim2.fromOffset(40, 40), BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0, ZIndex = 5,
-	}, card)
-	corner(miniPhoto, UDim.new(1, 0))
-	table.insert(avatars, miniPhoto)
-	makeLabel(card, { Position = UDim2.fromOffset(56, 10), Size = UDim2.new(1, -60, 0, 16), Text = "Welcome", TextColor3 = MUTED, TextSize = 11, ZIndex = 5 })
-	makeLabel(card, {
-		Position = UDim2.fromOffset(56, 26), Size = UDim2.new(1, -60, 0, 22), Text = player.DisplayName, Font = Enum.Font.GothamBold,
-		TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 5,
-	})
-	local profileBtn = new("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 6 }, card)
-
-	local index = {}
-	local function register(name, kind, frameRef, tabRef)
-		local ok, key = pcall(normalize, name)
-		table.insert(index, { name = tostring(name), key = ok and key or tostring(name):lower(), kind = kind, frame = frameRef, tab = tabRef })
-	end
-
-	local showView, selectTab, applyMode, goTo
-	local mode = "vertical"
-
-	local setSearchLayout
-	do
-		local vertical = true
-		local searchRoot = new("Frame", { BackgroundTransparency = 1, ZIndex = 10 }, mainView)
-		local boxFrame = new("Frame", { Size = UDim2.new(1, 0, 0, 32), BackgroundColor3 = STEEL_B, BorderSizePixel = 0 }, searchRoot)
-		corner(boxFrame, 8)
-		metalStroke(boxFrame, 1.5)
-		local magnifier = new("ImageLabel", {
-			Position = UDim2.fromOffset(8, 7), Size = UDim2.fromOffset(18, 18), BackgroundTransparency = 1,
-			Image = ASSETS.Search, ImageColor3 = ICON_IDLE, ScaleType = Enum.ScaleType.Fit,
-		}, boxFrame)
-		loadImage(magnifier, ASSETS.Search, function()
-			magnifier.Image = ""
-			drawMagnifier(magnifier)
-			tintIcon(magnifier, ICON_IDLE, false)
-		end)
-		local box = new("TextBox", {
-			Position = UDim2.fromOffset(32, 0), Size = UDim2.new(1, -40, 1, 0), BackgroundTransparency = 1, ClearTextOnFocus = false,
-			PlaceholderText = "Search...", PlaceholderColor3 = MUTED, Text = "", Font = Enum.Font.Gotham,
-			TextSize = 13, TextColor3 = TEXT, TextXAlignment = Enum.TextXAlignment.Left,
-		}, boxFrame)
-		box.Focused:Connect(function()
-			tintIcon(magnifier, WHITE, true)
-		end)
-		box.FocusLost:Connect(function()
-			tintIcon(magnifier, ICON_IDLE, true)
-		end)
-		local results = new("ScrollingFrame", {
-			Position = UDim2.fromOffset(0, 40), Size = UDim2.new(1, 0, 1, -40), BackgroundTransparency = 1, BorderSizePixel = 0,
-			ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-			ScrollingDirection = Enum.ScrollingDirection.Y,
-		}, searchRoot)
-		themed(results, "BackgroundColor3", "Background")
-		themed(results, "ScrollBarImageColor3", "Accent")
-		corner(results, 8)
-		local resultStroke = new("UIStroke", { Thickness = 1, Enabled = false }, results)
-		themed(resultStroke, "Color", "Line")
-		new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, results)
-		pad(results, 4, 6, 4, 4)
-		local hint = makeLabel(results, {
-			LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 28), Text = "", TextColor3 = MUTED, TextSize = 12,
-			TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
-		})
-
-		local function render()
-			for _, child in ipairs(results:GetChildren()) do
-				if child:IsA("Frame") then
-					child:Destroy()
+local function startAnti()
+	stopAnti()
+	antiEnabled = true
+	antiConn = RunService.Stepped:Connect(function()
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= Player and p.Character then
+				for _, part in ipairs(p.Character:GetChildren()) do
+					if part:IsA("BasePart") and part.CanCollide then
+						part.CanCollide = false
+					end
 				end
 			end
-			local ok, q = pcall(normalize, box.Text)
-			q = ok and q or box.Text:lower()
-			if q == "" then
-				hint.Text = "Type to search for a button or option."
-				hint.Visible = true
-				results.Visible = not vertical
+		end
+		local char = Player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if hrp and (hrp.AssemblyLinearVelocity.Magnitude > 120 or hrp.AssemblyAngularVelocity.Magnitude > 50) then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end
+	end)
+end
+
+local function flingMurderer()
+	if flinging then return end
+
+	local char = Player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not (hum and hrp) or hum.Health <= 0 then
+		notify("❌ Tu personaje no está disponible")
+		return
+	end
+
+	local murderer, mHrp, mHum = findMurderer()
+	if not murderer then
+		notify("❌ No se encontró al asesino")
+		return
+	end
+
+	flinging = true
+
+	if antiEnabled then
+		stopAnti()
+		untoggle(antiToggle)
+		notify("🛡 Antifling desactivado para el fling")
+	end
+
+	local originalCFrame = hrp.CFrame
+	notify("💥 Volando a " .. murderer.DisplayName .. " (" .. FLING_TIME .. "s)")
+
+	task.spawn(function()
+		pcall(function()
+			hrp.CFrame = mHrp.CFrame
+			hum.PlatformStand = true
+
+			local t0 = os.clock()
+			while os.clock() - t0 < FLING_TIME do
+				if not (hrp.Parent and hum.Parent) or hum.Health <= 0 then break end
+				if not (mHrp.Parent and mHum.Parent) or mHum.Health <= 0 then break end
+
+				RunService.Heartbeat:Wait()
+
+				local angle = (tick() * 2880) % 360
+				hrp.CFrame = mHrp.CFrame * CFrame.Angles(math.rad(angle), 0, 0) * CFrame.new(0, 0, 0.5)
+
+				local vel = hrp.AssemblyLinearVelocity
+				hrp.AssemblyLinearVelocity = vel * 10000 + Vector3.new(0, 10000, 0)
+				RunService.RenderStepped:Wait()
+				hrp.AssemblyLinearVelocity = vel
+				RunService.Stepped:Wait()
+				hrp.AssemblyLinearVelocity = vel + Vector3.new(0, 0.1, 0)
+			end
+		end)
+
+		pcall(function()
+			local c = Player.Character
+			local h = c and c:FindFirstChildOfClass("Humanoid")
+			local r = c and c:FindFirstChild("HumanoidRootPart")
+			if r then
+				r.AssemblyLinearVelocity = Vector3.zero
+				r.AssemblyAngularVelocity = Vector3.zero
+				r.CFrame = originalCFrame
+			end
+			if h then
+				h.PlatformStand = false
+				h:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end
+		end)
+
+		flinging = false
+		notify("✓ Fling terminado, de vuelta en tu posición")
+	end)
+end
+
+quickTab:CreateButton({ Name = "Volar al asesino", Callback = flingMurderer })
+
+antiToggle = quickTab:CreateToggle({
+	Name = "Antifling / Antitroll",
+	CurrentValue = false,
+	Callback = function(val)
+		if val then
+			if flinging then
+				untoggle(antiToggle)
 				return
 			end
-			results.Visible = true
-			local n = 0
-			for _, e in ipairs(index) do
-				if string.find(e.key, q, 1, true) then
-					n += 1
-					local _, b = makeButton(results, e.name, n, 30, nil, nil, true)
-					b.TextSize = 12
-					b.TextTruncate = Enum.TextTruncate.AtEnd
-					b.Activated:Connect(function()
-						goTo(e)
-						if vertical then
-							box.Text = ""
+			startAnti()
+			notify("🛡 Antifling activado")
+		else
+			if antiEnabled then
+				stopAnti()
+				notify("Antifling desactivado")
+			end
+		end
+	end,
+})
+
+local function clearCoinESP()
+	for _, v in ipairs(workspace:GetDescendants()) do
+		if v.Name == "XenonCoinHighlight" then v:Destroy() end
+	end
+end
+
+local function clearDroppedGunESP()
+	for _, v in ipairs(workspace:GetDescendants()) do
+		if v.Name == "XenonGunDropHighlight" or v.Name == "XenonGunFloatingIndicator" then
+			v:Destroy()
+		end
+	end
+end
+
+local function iHaveTheGun()
+	local char = Player.Character
+	local bp = Player:FindFirstChild("Backpack") or Player:FindFirstChildOfClass("Backpack")
+
+	local function scan(container)
+		if not container then return false end
+		for _, item in ipairs(container:GetChildren()) do
+			if item:IsA("Tool") then
+				local n = item.Name:lower()
+				if n:find("gun") or n:find("revolver") or n:find("pistola") or n:find("sheriff") then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	return scan(char) or scan(bp)
+end
+
+local function findDroppedGunTarget()
+	if iHaveTheGun() then return nil end
+
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		local nameLower = obj.Name:lower()
+		if nameLower:find("gundrop") or nameLower:find("gun_drop") or (obj:IsA("Tool") and (nameLower:find("gun") or nameLower:find("revolver"))) then
+			return obj:IsA("Tool") and obj:FindFirstChild("Handle") or obj
+		end
+	end
+
+	for _, model in ipairs(workspace:GetChildren()) do
+		if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+			local hum = model:FindFirstChildOfClass("Humanoid")
+			if not hum or hum.Health <= 0 then
+				return model:FindFirstChild("HumanoidRootPart") or model
+			end
+		end
+	end
+
+	return nil
+end
+
+scanConn = RunService.RenderStepped:Connect(function(dt)
+	scanTimer = scanTimer + dt
+	local doScan = scanTimer >= 0.3
+	if doScan then scanTimer = 0 end
+
+	if espCoinsActive and doScan then
+		pcall(function()
+			for _, d in ipairs(workspace:GetDescendants()) do
+				if d:IsA("BasePart") and (d.Name == "CoinVisual" or d.Name:lower():find("coin")) then
+					local target = d.Parent or d
+					local hl = target:FindFirstChild("XenonCoinHighlight")
+					if not hl then
+						hl = Instance.new("Highlight")
+						hl.Name = "XenonCoinHighlight"
+						hl.Adornee = target
+						hl.FillColor = Color3.fromRGB(255, 225, 0)
+						hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+						hl.FillTransparency = 0.25
+						hl.OutlineTransparency = 0
+						hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+						hl.Parent = target
+					else
+						hl.Adornee = target
+						hl.Enabled = true
+					end
+				end
+			end
+		end)
+	end
+
+	if espGunActive then
+		if doScan then
+			pcall(function()
+				if iHaveTheGun() then
+					clearDroppedGunESP()
+					gunIndicator = nil
+					return
+				end
+
+				local found = findDroppedGunTarget()
+
+				for _, v in ipairs(workspace:GetDescendants()) do
+					if v.Name == "XenonGunDropHighlight" or v.Name == "XenonGunFloatingIndicator" then
+						if not found or (v.Parent ~= found and v.Adornee ~= found) then
+							v:Destroy()
 						end
+					end
+				end
+
+				if found then
+					local hl = found:FindFirstChild("XenonGunDropHighlight")
+					if not hl then
+						hl = Instance.new("Highlight")
+						hl.Name = "XenonGunDropHighlight"
+						hl.Adornee = found
+						hl.FillColor = Color3.fromRGB(255, 50, 50)
+						hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+						hl.FillTransparency = 0.25
+						hl.OutlineTransparency = 0
+						hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+						hl.Parent = found
+					end
+
+					local ind = found:FindFirstChild("XenonGunFloatingIndicator")
+					if not ind then
+						ind = Instance.new("BillboardGui")
+						ind.Name = "XenonGunFloatingIndicator"
+						ind.Size = UDim2.fromOffset(120, 60)
+						ind.AlwaysOnTop = true
+						ind.Adornee = found
+						ind.Parent = found
+
+						local label = Instance.new("TextLabel")
+						label.Size = UDim2.fromScale(1, 1)
+						label.BackgroundTransparency = 1
+						label.Text = "⬇\nGUN"
+						label.Font = Enum.Font.GothamBold
+						label.TextSize = 22
+						label.TextColor3 = Color3.fromRGB(255, 255, 0)
+						label.TextStrokeTransparency = 0
+						label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+						label.Parent = ind
+					end
+					gunIndicator = ind
+				else
+					gunIndicator = nil
+				end
+			end)
+		end
+
+		if gunIndicator and gunIndicator.Parent then
+			gunIndicator.StudsOffset = Vector3.new(0, 3.2 + math.sin(tick() * 5) * 0.8, 0)
+		end
+	end
+end)
+
+quickTab:CreateButton({
+	Name = "⚡ TP TO GUN",
+	Callback = function()
+		local char = Player.Character
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+
+		local gunTarget = findDroppedGunTarget()
+		if gunTarget then
+			local cf
+			if gunTarget:IsA("BasePart") then
+				cf = gunTarget.CFrame
+			elseif gunTarget:IsA("Model") then
+				cf = gunTarget:GetPivot()
+			end
+			if cf then
+				hrp.CFrame = cf + Vector3.new(0, 2, 0)
+				notify("✓ Teletransportado")
+			end
+		else
+			notify("❌ No se encontró la pistola")
+		end
+	end,
+})
+
+local controls
+task.spawn(function()
+	local ok2, result = pcall(function()
+		return require(Player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule")):GetControls()
+	end)
+	if ok2 then controls = result end
+end)
+
+local function getMoveVector(hum)
+	if controls then
+		local ok2, v = pcall(function() return controls:GetMoveVector() end)
+		if ok2 and typeof(v) == "Vector3" then return v end
+	end
+	local cam = workspace.CurrentCamera
+	local d = hum.MoveDirection
+	local flatLook = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
+	if flatLook.Magnitude < 0.01 then return Vector3.zero end
+	return Vector3.new(d:Dot(cam.CFrame.RightVector), 0, -d:Dot(flatLook.Unit))
+end
+
+local function flyCleanup()
+	if flyConn then flyConn:Disconnect() flyConn = nil end
+	if lv then lv:Destroy() lv = nil end
+	if ao then ao:Destroy() ao = nil end
+	if att then att:Destroy() att = nil end
+end
+
+local function stopFly()
+	flying = false
+	flyCleanup()
+	local char = Player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.PlatformStand = false
+		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end
+	untoggle(flyToggle)
+end
+
+local function startFly()
+	local char = Player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	if not (hum and root) or hum.Health <= 0 then
+		untoggle(flyToggle)
+		return
+	end
+
+	flying = true
+	flyCleanup()
+
+	att = Instance.new("Attachment")
+	att.Parent = root
+
+	lv = Instance.new("LinearVelocity")
+	lv.Attachment0 = att
+	lv.MaxForce = math.huge
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+	lv.VectorVelocity = Vector3.zero
+	lv.Parent = root
+
+	ao = Instance.new("AlignOrientation")
+	ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	ao.Attachment0 = att
+	ao.RigidityEnabled = true
+	ao.CFrame = root.CFrame
+	ao.Parent = root
+
+	hum.PlatformStand = true
+
+	flyConn = RunService.RenderStepped:Connect(function()
+		if not (lv and root.Parent and hum.Parent) or hum.Health <= 0 then
+			stopFly()
+			return
+		end
+		local cf = workspace.CurrentCamera.CFrame
+		local mv = getMoveVector(hum)
+		local dir = cf.RightVector * mv.X + cf.LookVector * (-mv.Z)
+		if dir.Magnitude > 1 then dir = dir.Unit end
+		lv.VectorVelocity = dir * speed
+		ao.CFrame = cf.Rotation
+	end)
+end
+
+flyToggle = quickTab:CreateToggle({
+	Name = "Fly",
+	CurrentValue = false,
+	Callback = function(val)
+		if val then
+			if not flying then startFly() end
+		elseif flying then
+			stopFly()
+		end
+	end,
+})
+
+quickTab:CreateSlider({
+	Name = "Velocidad de fly",
+	Range = {1, 999},
+	Increment = 1,
+	CurrentValue = 1,
+	Callback = function(v)
+		speed = math.floor(v) * 10
+	end,
+})
+
+local function setInvTransparency(t)
+	for _, p in ipairs(invParts) do
+		if p.Parent then p.Transparency = t end
+	end
+end
+
+local function stopInvisible()
+	invisible = false
+	if invConn then invConn:Disconnect() invConn = nil end
+	setInvTransparency(0)
+	invParts = {}
+	untoggle(invToggle)
+end
+
+local function startInvisible()
+	local char = Player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not (hum and hrp) or hum.Health <= 0 then
+		untoggle(invToggle)
+		return
+	end
+
+	invisible = true
+	invParts = {}
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") and d.Transparency == 0 then
+			table.insert(invParts, d)
+		end
+	end
+	setInvTransparency(0.5)
+
+	if invConn then invConn:Disconnect() end
+	invConn = RunService.Heartbeat:Connect(function()
+		local c = Player.Character
+		local h = c and c:FindFirstChildOfClass("Humanoid")
+		local r = c and c:FindFirstChild("HumanoidRootPart")
+		if not (h and r) then return end
+
+		local originalCFrame = r.CFrame
+		local originalOffset = h.CameraOffset
+
+		local downCFrame = originalCFrame * CFrame.new(0, -200000, 0)
+		r.CFrame = downCFrame
+		h.CameraOffset = downCFrame:ToObjectSpace(CFrame.new(originalCFrame.Position)).Position
+
+		RunService.RenderStepped:Wait()
+
+		r.CFrame = originalCFrame
+		h.CameraOffset = originalOffset
+	end)
+end
+
+invToggle = quickTab:CreateToggle({
+	Name = "Invisible",
+	CurrentValue = false,
+	Callback = function(val)
+		if val then
+			if not invisible then startInvisible() end
+		elseif invisible then
+			stopInvisible()
+		end
+	end,
+})
+
+charConn = Player.CharacterAdded:Connect(function()
+	if flying then
+		flying = false
+		flyCleanup()
+	end
+	if invisible then
+		if invConn then invConn:Disconnect() invConn = nil end
+		invisible = false
+		invParts = {}
+	end
+	untoggle(flyToggle)
+	untoggle(invToggle)
+end)
+
+do
+	local AV_BASE_REACH   = 10
+	local AV_EXTRA        = 6
+	local AV_TICK         = 0.05
+
+	local avActive = false
+	local avConn, avAddConn
+	local avAuto = false
+	local avSafeSince = nil
+	local avLastPos = nil
+	local avLastTick = 0
+
+	local function getRealMurderer()
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= Player and p.Character then
+				local hum = p.Character:FindFirstChildOfClass("Humanoid")
+				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+				if hrp and hum and hum.Health > 0 then
+					local backpack = p:FindFirstChild("Backpack")
+					local char = p.Character
+					
+					local equippedTool = char:FindFirstChildOfClass("Tool")
+					if equippedTool then
+						local name = equippedTool.Name:lower()
+						if name:find("knife") or name:find("cuchillo") then
+							return p, hrp, hum
+						end
+					end
+					
+					if backpack then
+						for _, item in ipairs(backpack:GetChildren()) do
+							if item:IsA("Tool") then
+								local name = item.Name:lower()
+								if name:find("knife") or name:find("cuchillo") then
+									return p, hrp, hum
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+		return nil, nil, nil
+	end
+
+	local function avTick()
+		if not avActive then return end
+		local now = os.clock()
+		if now - avLastTick < AV_TICK then return end
+		avLastTick = now
+
+		if avAuto and not invisible then
+			avAuto, avSafeSince = false, nil
+		end
+
+		local char = Player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not (hum and hrp) or hum.Health <= 0 or flinging then return end
+
+		local myPos = hrp.Position
+		if myPos.Y < workspace.FallenPartsDestroyHeight + 5 then
+			myPos = avLastPos
+		else
+			avLastPos = myPos
+		end
+		if not myPos then return end
+
+		local murderer, mHrp, mHum = getRealMurderer()
+		local danger = false
+
+		if murderer and mHrp then
+			local dist = (myPos - mHrp.Position).Magnitude
+			local triggerDistance = AV_BASE_REACH + AV_EXTRA
+			
+			if dist <= triggerDistance then
+				danger = true
+			end
+		end
+
+		if danger then
+			avSafeSince = nil
+			if not invisible then
+				startInvisible()
+				if invisible then
+					avAuto = true
+					pcall(function()
+						if invToggle and not invToggle.CurrentValue then invToggle:Set(true) end
 					end)
 				end
 			end
-			hint.Text = "No results."
-			hint.Visible = (n == 0)
-			if vertical then
-				results.Size = UDim2.new(1, 0, 0, math.clamp(12 + math.max(n, 1) * 36, 44, 168))
+		elseif avAuto then
+			avSafeSince = avSafeSince or now
+			if now - avSafeSince >= 0.5 then
+				avAuto, avSafeSince = false, nil
+				if invisible then stopInvisible() end
 			end
 		end
+	end
 
-		function setSearchLayout(v)
-			vertical = v
-			resultStroke.Enabled = v
-			if v then
-				searchRoot.Position = UDim2.fromOffset(176, 8)
-				searchRoot.Size = UDim2.new(1, -184, 0, 32)
-				results.Position = UDim2.fromOffset(0, 38)
-				results.BackgroundTransparency = 0.02
+	local function avStart()
+		if avActive then return end
+		avActive = true
+		avAuto, avSafeSince, avLastPos = false, nil, nil
+		avLastTick = os.clock()
+		avConn = RunService.Heartbeat:Connect(avTick)
+	end
+
+	local function avStop()
+		if not avActive then return end
+		avActive = false
+		if avConn then avConn:Disconnect() avConn = nil end
+		if avAddConn then avAddConn:Disconnect() avAddConn = nil end
+		if avAuto then
+			avAuto = false
+			if invisible then pcall(stopInvisible) end
+		end
+	end
+
+	quickTab:CreateToggle({
+		Name = "Evitar asesino",
+		CurrentValue = false,
+		Callback = function(val)
+			if val then
+				avStart()
+				notify("🛡 Evitar asesino activado")
 			else
-				searchRoot.Position = UDim2.fromOffset(8, 64)
-				searchRoot.Size = UDim2.new(0, 150, 1, -(64 + SIZE.Profile + 16))
-				results.Position = UDim2.fromOffset(0, 40)
-				results.Size = UDim2.new(1, 0, 1, -40)
-				results.BackgroundTransparency = 1
+				avStop()
+				notify("Evitar asesino desactivado")
 			end
-			render()
-		end
-		box:GetPropertyChangedSignal("Text"):Connect(render)
-	end
-
-	local tabs = {}
-	local selectedTab
-	local function tabSize()
-		return mode == "vertical" and UDim2.new(1, 0, 0, 36) or UDim2.fromOffset(120, 32)
-	end
-
-	function selectTab(tab)
-		local prev = selectedTab
-		for _, t in ipairs(tabs) do
-			t.Page.Visible = (t == tab)
-		end
-		if selectedTab then
-			tw(selectedTab.Button, 0.15, { BackgroundTransparency = 1, TextColor3 = MUTED })
-		end
-		selectedTab = tab
-		tw(tab.Button, 0.15, { BackgroundTransparency = 0.7, TextColor3 = TEXT })
-		if prev and prev ~= tab then
-			local dir = (table.find(tabs, tab) or 0) > (table.find(tabs, prev) or 0) and 1 or -1
-			tab.Page.Position = UDim2.fromOffset(dir * 70, 0)
-			content.GroupTransparency = 1
-			tw(content, 0.35, { GroupTransparency = 0 }, Enum.EasingStyle.Quint)
-			tw(tab.Page, 0.5, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Exponential)
-			haptic()
-		end
-	end
-
-	function Window:CreateTab(name, icon)
-		local tab = { Name = name, Icon = icon }
-		local btn = new("TextButton", {
-			LayoutOrder = #tabs + 1, Size = tabSize(), BackgroundTransparency = 1, BorderSizePixel = 0, AutoButtonColor = false,
-			Text = name, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = MUTED,
-			TextXAlignment = mode == "vertical" and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center,
-		}, tabList)
-		themed(btn, "BackgroundColor3", "Accent")
-		corner(btn, 8)
-		metalStroke(btn, 1.5)
-		local padding = new("UIPadding", { PaddingLeft = UDim.new(0, 12) }, btn)
-		if icon then
-			local img = new("ImageLabel", {
-				AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, -2, 0.5, 0), Size = UDim2.fromOffset(18, 18),
-				BackgroundTransparency = 1, ImageColor3 = ICON_IDLE,
-			}, btn)
-			if applyIcon(img, icon) then
-				padding.PaddingLeft = UDim.new(0, 30)
-				img.Position = UDim2.new(0, -20, 0.5, 0)
-				tab.HasIcon = true
-				iconPress(btn, img)
-			else
-				img:Destroy()
-			end
-		end
-		tab.Button = btn
-		tab.Page = makePage(content)
-		local api = makeApi(tab.Page, tab, register)
-		for k, f in pairs(api) do
-			tab[k] = f
-		end
-		btn.Activated:Connect(function()
-			showView("main")
-			selectTab(tab)
-		end)
-		table.insert(tabs, tab)
-		table.insert(Window.Tabs, tab)
-		register(name, "Tab", btn, tab)
-		if #tabs == 1 then
-			selectTab(tab)
-		end
-		return tab
-	end
-
-	local settingsView = new("CanvasGroup", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, GroupTransparency = 1, Visible = false, ZIndex = 3,
-	}, body)
-	makeLabel(settingsView, {
-		Position = UDim2.fromOffset(16, 8), Size = UDim2.new(1, -32, 0, 22), Text = "Settings", Font = Enum.Font.GothamBold, TextSize = 15,
+		end,
 	})
-	local settingsPage = makePage(settingsView)
-	settingsPage.Position = UDim2.fromOffset(12, 40)
-	settingsPage.Size = UDim2.new(1, -24, 1, -48)
-	settingsPage.Visible = true
-	local settingsTab = { _isSettings = true, Name = "Settings" }
-	local sApi = makeApi(settingsPage, settingsTab, register)
 
-	local profileView = new("CanvasGroup", {
-		Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, GroupTransparency = 1, Visible = false, ZIndex = 3,
-	}, body)
-	local function iconOnButton(btn, id, fallbackText)
-		btn.Text = ""
-		local img = new("ImageLabel", {
-			AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(20, 20),
-			BackgroundTransparency = 1, Image = id, ImageColor3 = WHITE, ScaleType = Enum.ScaleType.Fit,
-		}, btn)
-		loadImage(img, id, function()
-			img:Destroy()
-			btn.Text = fallbackText
-		end)
-		return img
-	end
-	local backFrame, backBtn = makeButton(profileView, "", 1, 28)
-	backFrame.Position = UDim2.fromOffset(12, 8)
-	backFrame.Size = UDim2.fromOffset(84, 28)
-	backBtn.TextSize = 12
-	iconOnButton(backBtn, ASSETS.Back, "< Back")
-	makeLabel(profileView, { Position = UDim2.fromOffset(108, 8), Size = UDim2.new(1, -120, 0, 28), Text = "Profile", Font = Enum.Font.GothamBold, TextSize = 15 })
-	local bigPhoto = new("ImageLabel", {
-		Position = UDim2.fromOffset(16, 46), Size = UDim2.fromOffset(60, 60), BackgroundColor3 = C(20, 22, 28), BorderSizePixel = 0,
-	}, profileView)
-	corner(bigPhoto, UDim.new(1, 0))
-	metalStroke(bigPhoto, 2)
-	table.insert(avatars, bigPhoto)
-	makeLabel(profileView, {
-		Position = UDim2.fromOffset(90, 54), Size = UDim2.new(1, -106, 0, 24), Text = player.DisplayName,
-		Font = Enum.Font.GothamBold, TextSize = 17, TextTruncate = Enum.TextTruncate.AtEnd,
+	quickTab:CreateSlider({
+		Name = "Studs extra de seguridad",
+		Range = {0, 30},
+		Increment = 1,
+		CurrentValue = 6,
+		Callback = function(v) AV_EXTRA = v end,
 	})
-	makeLabel(profileView, {
-		Position = UDim2.fromOffset(90, 78), Size = UDim2.new(1, -106, 0, 18), Text = "@" .. player.Name,
-		TextColor3 = MUTED, TextSize = 12, TextTruncate = Enum.TextTruncate.AtEnd,
-	})
-	local dataList = new("ScrollingFrame", {
-		Position = UDim2.fromOffset(12, 116), Size = UDim2.new(1, -24, 1, -124), BackgroundTransparency = 1, BorderSizePixel = 0,
-		ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y,
-		ScrollingDirection = Enum.ScrollingDirection.Y,
-	}, profileView)
-	themed(dataList, "ScrollBarImageColor3", "Accent")
-	new("UIListLayout", { Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder }, dataList)
-	pad(dataList, 2, 8, 24, 2)
 
-	local function dataRow(orderN, key, value)
-		value = tostring(value)
-		if value == "" then
-			value = "-"
-		end
-		local f = new("Frame", {
-			LayoutOrder = orderN, Size = UDim2.new(1, 0, 0, 48), BackgroundColor3 = Color3.new(0, 0, 0),
-			BackgroundTransparency = 0.7, BorderSizePixel = 0,
-		}, dataList)
-		corner(f, 8)
-		themed(new("UIStroke", { Thickness = 1 }, f), "Color", "Line")
-		makeLabel(f, { Position = UDim2.fromOffset(12, 6), Size = UDim2.new(1, -110, 0, 16), Text = key, TextColor3 = MUTED, TextSize = 11 })
-		makeLabel(f, {
-			Position = UDim2.fromOffset(12, 24), Size = UDim2.new(1, -110, 0, 18), Text = value, Font = Enum.Font.GothamMedium,
-			TextSize = 13, TextTruncate = Enum.TextTruncate.AtEnd,
-		})
-		local m, b = makeButton(f, "", 1, 28)
-		m.AnchorPoint = Vector2.new(1, 0.5)
-		m.Position = UDim2.new(1, -8, 0.5, 0)
-		m.Size = UDim2.fromOffset(78, 28)
-		b.TextSize = 12
-		local copyImg = iconOnButton(b, ASSETS.Copy, "Copy")
-		local busy = false
-		b.Activated:Connect(function()
-			if busy then
-				return
-			end
-			busy = true
-			local ok = copyText(value)
-			if copyImg and copyImg.Parent then
-				copyImg.ImageColor3 = ok and GREEN or RED
-			else
-				b.Text = ok and "Copied!" or "Unavailable"
-				b.TextColor3 = ok and GREEN or RED
-			end
-			task.delay(1.2, function()
-				if copyImg and copyImg.Parent then
-					copyImg.ImageColor3 = WHITE
-				else
-					b.Text = "Copy"
-					b.TextColor3 = TEXT
+	_G.MM2_AVOID_STOP = avStop
+end
+
+sheriffTab:CreateToggle({
+	Name = "Activar Aimbot (Torso)",
+	CurrentValue = false,
+	Callback = function(val)
+		SheriffAimbotEnabled = val
+		if aimbotConn then aimbotConn:Disconnect() aimbotConn = nil end
+		if not val then return end
+
+		aimbotConn = RunService.RenderStepped:Connect(function()
+			if not SheriffAimbotEnabled then return end
+			local targetTorso = nil
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= Player and p.Character then
+					local char = p.Character
+					local hum = char:FindFirstChild("Humanoid")
+					if getPlayerRole(p) == "Murderer" and hum and hum.Health > 0 then
+						local torso = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+						if torso then
+							if IgnoreWallsEnabled then
+								targetTorso = torso
+								break
+							else
+								local rayParams = RaycastParams.new()
+								rayParams.FilterType = Enum.RaycastFilterType.Exclude
+								rayParams.FilterDescendantsInstances = {Player.Character, char}
+								local result = workspace:Raycast(Camera.CFrame.Position, (torso.Position - Camera.CFrame.Position), rayParams)
+								if not result then
+									targetTorso = torso
+									break
+								end
+							end
+						end
+					end
 				end
-				busy = false
-			end)
-		end)
-	end
-	local registered = os.time() - player.AccountAge * 86400
-	local infos = {
-		{ "Username", player.Name }, { "Display name", player.DisplayName }, { "User ID", player.UserId },
-		{ "Registration date", os.date("!%d/%m/%Y", registered) }, { "Account age", player.AccountAge .. " days" },
-		{ "Membership", player.MembershipType.Name }, { "Language", player.LocaleId },
-		{ "Profile link", "https://www.roblox.com/users/" .. player.UserId .. "/profile" },
-		{ "Place ID", game.PlaceId }, { "Job ID", game.JobId },
-	}
-	for i, d in ipairs(infos) do
-		dataRow(i, d[1], d[2])
-	end
-	task.spawn(function()
-		local ok, img = pcall(function()
-			return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
-		end)
-		if ok and img then
-			for _, a in ipairs(avatars) do
-				a.Image = img
 			end
-		end
-	end)
+			if targetTorso then
+				Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, targetTorso.Position)
+			end
+		end)
+	end,
+})
 
-	local views = { main = mainView, settings = settingsView, profile = profileView }
-	local currentView = "main"
-	function showView(name)
-		if name == currentView then
-			return
-		end
-		local prev = currentView
-		currentView = name
-		local nv = views[name]
-		nv.Visible = true
-		tw(nv, 0.25, { GroupTransparency = 0 })
-		local pv = views[prev]
-		tw(pv, 0.2, { GroupTransparency = 1 }).Completed:Connect(function()
-			if currentView ~= prev then
-				pv.Visible = false
-			end
-		end)
-	end
-	btnSettings.Activated:Connect(function()
-		showView(currentView == "settings" and "main" or "settings")
-	end)
-	profileBtn.Activated:Connect(function()
-		showView("profile")
-	end)
-	backBtn.Activated:Connect(function()
-		showView("main")
-	end)
+sheriffTab:CreateToggle({
+	Name = "Ignorar paredes",
+	CurrentValue = false,
+	Callback = function(val) IgnoreWallsEnabled = val end,
+})
 
-	function goTo(e)
-		if e.tab and e.tab._isSettings then
-			showView("settings")
-		else
-			showView("main")
-			if e.tab and e.tab.Page then
-				selectTab(e.tab)
-			end
+murdererTab:CreateToggle({
+	Name = "Tamaño de malla de daño",
+	CurrentValue = false,
+	Callback = function(val) MurdererReachEnabled = val end,
+})
+
+murdererTab:CreateInput({
+	Name = "Tamaño de malla",
+	CurrentValue = tostring(HitboxReachSize),
+	PlaceholderText = "7",
+	Callback = function(text)
+		local num = tonumber(text)
+		if num then HitboxReachSize = num end
+	end,
+})
+
+murdererTab:CreateToggle({
+	Name = "Vista previa de la malla",
+	CurrentValue = false,
+	Callback = function(val)
+		PreviewMeshEnabled = val
+		if not val and previewPart then
+			previewPart:Destroy()
+			previewPart = nil
 		end
-		task.delay(0.1, function()
-			local frameRef = e.frame
-			if not (frameRef and frameRef.Parent) then
-				return
-			end
-			local pageRef = (e.tab and e.tab._isSettings) and settingsPage or (e.tab and e.tab.Page)
-			if pageRef and e.kind ~= "Tab" then
-				local y = frameRef.AbsolutePosition.Y - pageRef.AbsolutePosition.Y + pageRef.CanvasPosition.Y - 8
-				pageRef.CanvasPosition = Vector2.new(0, math.max(0, y))
-				local fl = new("Frame", {
-					Size = UDim2.fromScale(1, 1), BackgroundColor3 = Theme.Accent, BackgroundTransparency = 0.55, BorderSizePixel = 0, ZIndex = 20,
-				}, frameRef)
-				corner(fl, 8)
-				tw(fl, 0.9, { BackgroundTransparency = 1 }).Completed:Connect(function()
-					fl:Destroy()
-				end)
-			end
-		end)
+	end,
+})
+
+reachConn = RunService.RenderStepped:Connect(function()
+	local char = Player.Character
+	if not char then return end
+	local tool = char:FindFirstChildOfClass("Tool")
+	local handle = tool and tool:FindFirstChild("Handle")
+
+	if PreviewMeshEnabled then
+		if not previewPart then
+			previewPart = Instance.new("Part")
+			previewPart.Name = "MeshPreviewNet"
+			previewPart.Shape = Enum.PartType.Ball
+			previewPart.Material = Enum.Material.ForceField
+			previewPart.Color = Color3.fromRGB(0, 255, 255)
+			previewPart.Transparency = 0.25
+			previewPart.CanCollide = false
+			previewPart.Anchored = true
+			previewPart.Parent = workspace
+		end
+		local followPart = handle or char:FindFirstChild("HumanoidRootPart")
+		if followPart then
+			previewPart.Size = Vector3.new(HitboxReachSize, HitboxReachSize, HitboxReachSize)
+			previewPart.CFrame = followPart.CFrame
+		end
+	elseif previewPart then
+		previewPart:Destroy()
+		previewPart = nil
 	end
 
-	function applyMode(m)
-		mode = m
-		local v = (m == "vertical")
-		tabList.AutomaticCanvasSize = Enum.AutomaticSize.None
-		tabList.CanvasSize = UDim2.new()
-		tabList.CanvasPosition = Vector2.new()
-		tabLayout.FillDirection = v and Enum.FillDirection.Vertical or Enum.FillDirection.Horizontal
-		tabList.ScrollingDirection = v and Enum.ScrollingDirection.Y or Enum.ScrollingDirection.X
-		tabList.AutomaticCanvasSize = v and Enum.AutomaticSize.Y or Enum.AutomaticSize.X
-		tabPad.PaddingLeft = UDim.new(0, 3)
-		tabPad.PaddingTop = UDim.new(0, 3)
-		tabPad.PaddingRight = UDim.new(0, v and 6 or 3)
-		tabPad.PaddingBottom = UDim.new(0, v and 3 or 6)
-		tabList.Position = v and UDim2.fromOffset(8, 8) or UDim2.fromOffset(8, 6)
-		tabList.Size = v and UDim2.new(0, 150, 1, -(16 + SIZE.Profile + 6)) or UDim2.new(1, -16, 0, 44)
-		sepV.Position = v and UDim2.fromOffset(166, 8) or UDim2.fromOffset(166, 62)
-		sepV.Size = v and UDim2.new(0, 1, 1, -16) or UDim2.new(0, 1, 1, -70)
-		sepH.Visible = not v
-		setSearchLayout(v)
-		content.Position = v and UDim2.fromOffset(176, 48) or UDim2.fromOffset(176, 64)
-		content.Size = v and UDim2.new(1, -184, 1, -56) or UDim2.new(1, -184, 1, -72)
-		for _, t in ipairs(tabs) do
-			t.Button.Size = tabSize()
-			t.Button.TextXAlignment = v and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center
+	if not MurdererReachEnabled or HitboxReachSize <= 0 or not handle then return end
+
+	handle.CanCollide = false
+	handle.Massless = true
+
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= Player and p.Character then
+			local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+			if hrp and (hrp.Position - handle.Position).Magnitude <= HitboxReachSize then
+				firetouchinterest(hrp, handle, 0)
+				firetouchinterest(hrp, handle, 1)
+			end
 		end
 	end
+end)
 
-	sApi:CreateSection("Interface")
-	do
-		local rows = math.ceil(#THEMES / 3)
-		local ex = expandable(settingsPage, sApi._nextOrder(), "Themes", rows * 36 + (rows - 1) * 8 + 12)
-		pad(ex.Body, 4, 4, 4, 4)
-		new("UIGridLayout", {
-			CellSize = UDim2.new(1 / 3, -6, 0, 36), CellPadding = UDim2.fromOffset(8, 8), SortOrder = Enum.SortOrder.LayoutOrder,
-		}, ex.Body)
-		for i, t in ipairs(THEMES) do
-			local b = new("TextButton", {
-				LayoutOrder = i, BackgroundColor3 = t.Background, AutoButtonColor = false, Text = t.Name,
-				Font = Enum.Font.GothamMedium, TextSize = 12, TextColor3 = t.Accent,
-			}, ex.Body)
-			corner(b, 8)
-			metalStroke(b, 1.5)
-			b.Activated:Connect(function()
-				setThemeByName(t.Name)
-				autosave()
-			end)
+local function clearPlayerESP()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			local hl = p.Character:FindFirstChild("ESP_Highlight")
+			if hl then hl:Destroy() end
+			local head = p.Character:FindFirstChild("Head")
+			if head then
+				local bb = head:FindFirstChild("ESP_Billboard")
+				if bb then bb:Destroy() end
+			end
 		end
-		register("Themes", "Settings", ex.Head, settingsTab)
-		self.Flags["SpaceHub_Theme"] = {
-			Type = "Theme", CurrentValue = Theme.Name,
-			Set = function(_, name)
-				setThemeByName(name)
-			end,
-		}
 	end
-	sApi:CreateDropdown({
-		Name = "Menu type", Options = { "Horizontal categories", "Vertical categories" }, CurrentOption = { "Vertical categories" },
-		Flag = "SpaceHub_MenuType",
-		Callback = function(opt)
-			applyMode(opt[1] == "Horizontal categories" and "horizontal" or "vertical")
-		end,
-	})
-	sApi:CreateKeybind({
-		Name = "Toggle interface", CurrentKeybind = toggleKey.Name, Flag = "SpaceHub_ToggleKey",
-		OnSet = function(name)
-			local ok, kc = pcall(function()
-				return Enum.KeyCode[name]
-			end)
-			if ok and kc then
-				toggleKey = kc
-			end
-		end,
-	})
-	sApi:CreateSection("Configuration")
-	sApi:CreateButton({
-		Name = "Save configuration",
-		Callback = function()
-			local ok = SpaceHub:SaveConfiguration()
-			SpaceHub:Notify({ Title = ok and "Configuration saved" or "Could not save", Content = ok and "Your settings were stored." or "File functions are not available.", Duration = 3 })
-		end,
-	})
-	sApi:CreateButton({
-		Name = "Load configuration",
-		Callback = function()
-			local ok = SpaceHub:LoadConfiguration()
-			SpaceHub:Notify({ Title = ok and "Configuration loaded" or "Nothing to load", Content = ok and "Saved values were applied." or "No saved file was found.", Duration = 3 })
-		end,
-	})
-	sApi:CreateToggle({
-		Name = "Auto save", CurrentValue = true,
-		Callback = function(v)
-			SpaceHub.AutoSave = v
-		end,
-	})
-	sApi:CreateToggle({
-		Name = "Vibration", CurrentValue = true,
-		Callback = function(v)
-			SpaceHub.Haptics = v
-		end,
-	})
+end
 
-	sApi:CreateSection("Autoexecute")
-	do
-		local aeToggle
-		local reverting = false
-		local function revert(state)
-			reverting = true
-			if aeToggle then
-				aeToggle:Set(state)
-			end
-			reverting = false
-		end
-		pcall(function()
-			SpaceHub:EnsureAutoExecute()
-		end)
-		local okInstalled, installed = pcall(function()
-			return SpaceHub:IsAutoExecuteInstalled()
-		end)
-		aeToggle = sApi:CreateToggle({
-			Name = "Auto execute",
-			CurrentValue = okInstalled and installed == true,
-			Callback = function(on)
-				if reverting then
-					return
-				end
-				if on then
-					local ok, info = SpaceHub:InstallAutoExecute()
-					if ok then
-						local viaTeleport = (info == "teleport")
-						SpaceHub:Notify({
-							Title = "Auto execute enabled",
-							Content = viaTeleport and "Only runs when teleporting (autoexec folder not available)."
-								or ("Saved to " .. tostring(info)),
-							Duration = 4,
-						})
+local function updateESP()
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= Player then
+			pcall(function()
+				local char = p.Character
+				if not char then return end
+
+				local head = char:FindFirstChild("Head")
+				local hum = char:FindFirstChild("Humanoid")
+
+				if head and hum and hum.Health > 0 then
+					local role = getPlayerRole(p)
+					local shouldShow = (role == "Murderer" and ESP_Murderer) or (role == "Sheriff" and ESP_Sheriff) or (role == "Innocent" and ESP_Innocent)
+
+					local hl = char:FindFirstChild("ESP_Highlight")
+					local bb = head:FindFirstChild("ESP_Billboard")
+
+					if shouldShow then
+						if not hl then
+							hl = Instance.new("Highlight")
+							hl.Name = "ESP_Highlight"
+							hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+							hl.Parent = char
+						end
+						hl.FillTransparency = 0.4
+						hl.OutlineTransparency = 0
+
+						if not bb then
+							bb = Instance.new("BillboardGui")
+							bb.Name = "ESP_Billboard"
+							bb.Size = UDim2.fromOffset(120, 30)
+							bb.StudsOffset = Vector3.new(0, 3, 0)
+							bb.AlwaysOnTop = true
+							bb.Parent = head
+
+							local lbl = Instance.new("TextLabel")
+							lbl.Name = "RoleLabel"
+							lbl.Size = UDim2.fromScale(1, 1)
+							lbl.BackgroundTransparency = 1
+							lbl.Font = Enum.Font.GothamBold
+							lbl.TextSize = 13
+							lbl.TextStrokeTransparency = 0
+							lbl.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+							lbl.Parent = bb
+						end
+
+						local roleLabel = bb:FindFirstChild("RoleLabel")
+						hl.OutlineColor = Color3.fromRGB(255, 250, 250)
+
+						if role == "Murderer" then
+							hl.FillColor = Color3.fromRGB(255, 40, 40)
+							if roleLabel then
+								roleLabel.Text = "🔴 ASESINO"
+								roleLabel.TextColor3 = Color3.fromRGB(255, 60, 60)
+							end
+						elseif role == "Sheriff" then
+							hl.FillColor = Color3.fromRGB(40, 140, 255)
+							if roleLabel then
+								roleLabel.Text = "🔵 SHERIFF"
+								roleLabel.TextColor3 = Color3.fromRGB(60, 160, 255)
+							end
+						else
+							hl.FillColor = Color3.fromRGB(40, 255, 100)
+							if roleLabel then
+								roleLabel.Text = "🟢 INOCENTE"
+								roleLabel.TextColor3 = Color3.fromRGB(70, 255, 120)
+							end
+						end
 					else
-						SpaceHub:Notify({ Title = "Auto execute failed", Content = tostring(info), Duration = 5 })
-						task.defer(revert, false)
+						if hl then hl:Destroy() end
+						if bb then bb:Destroy() end
 					end
 				else
-					local removed = SpaceHub:RemoveAutoExecute()
-					SpaceHub:Notify({
-						Title = removed and "Auto execute disabled" or "Nothing removed",
-						Content = removed and "The autoexec file was deleted." or "No file found or delete not supported.",
-						Duration = 3,
-					})
-				end
-			end,
-		})
-		SpaceHub.Flags["SpaceHub_AutoExecuteState"] = nil
-	end
-
-	sApi:CreateSection("Window")
-
-	local grip = new("TextButton", {
-		AnchorPoint = Vector2.new(1, 1), Position = UDim2.new(1, -4, 1, -4), Size = UDim2.fromOffset(24, 24),
-		BackgroundTransparency = 1, AutoButtonColor = false, Text = "◢", Font = Enum.Font.GothamBold,
-		TextSize = 16, TextColor3 = BAR_GRAY, ZIndex = 20,
-	}, body)
-	grip.MouseEnter:Connect(function()
-		tw(grip, 0.15, { TextColor3 = WHITE })
-	end)
-	grip.MouseLeave:Connect(function()
-		tw(grip, 0.15, { TextColor3 = BAR_GRAY })
-	end)
-	local resizing
-	grip.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			resizing = { start = input.Position, w = W, h = H }
-			tw(grip, 0.15, { TextColor3 = WHITE })
-		end
-	end)
-
-	local minimized = false
-	local function setMinimized(v)
-		minimized = v
-		header.Active = not v
-		grab.Active = not v
-		local w, h = W, H
-		if v then
-			w, h = SIZE.PillW, SIZE.PillH
-		end
-		local cx = container.Position.X.Offset + container.Size.X.Offset / 2
-		local cy = container.Position.Y.Offset + container.Size.Y.Offset / 2
-		local p = limit(cx - w / 2, cy - h / 2, w, h)
-		tw(container, 0.4, { Size = UDim2.fromOffset(w, h), Position = UDim2.fromOffset(p.X, p.Y) }, Enum.EasingStyle.Quint)
-		local r = v and SIZE.PillH / 2 or 12
-		tw(frameCorner, 0.4, { CornerRadius = UDim.new(0, r) })
-		for _, s in ipairs(shadows) do
-			tw(s.c, 0.4, { CornerRadius = UDim.new(0, r + s.extra) })
-		end
-		tw(headerLine, 0.3, { BackgroundTransparency = v and 1 or 0 })
-		if v then
-			tw(controls, 0.15, { GroupTransparency = 1 })
-			tw(body, 0.15, { GroupTransparency = 1 }).Completed:Connect(function()
-				if minimized then
-					body.Visible = false
-					controls.Visible = false
-				end
-			end)
-			tw(bar, 0.2, { BackgroundTransparency = 1 }).Completed:Connect(function()
-				if minimized then
-					grab.Visible = false
-				end
-			end)
-			pillControls.Visible = true
-			tw(pillControls, 0.3, { GroupTransparency = 0 })
-		else
-			grab.Visible = true
-			tw(bar, 0.25, { BackgroundTransparency = 0 })
-			body.Visible = true
-			controls.Visible = true
-			tw(controls, 0.25, { GroupTransparency = 0 })
-			tw(body, 0.3, { GroupTransparency = 0 })
-			tw(pillControls, 0.15, { GroupTransparency = 1 }).Completed:Connect(function()
-				if not minimized then
-					pillControls.Visible = false
+					local hl = char:FindFirstChild("ESP_Highlight")
+					if hl then hl:Destroy() end
+					if head then
+						local bb = head:FindFirstChild("ESP_Billboard")
+						if bb then bb:Destroy() end
+					end
 				end
 			end)
 		end
 	end
-	btnMin.Activated:Connect(function()
-		setMinimized(true)
-	end)
-	btnMax.Activated:Connect(function()
-		setMinimized(false)
-	end)
+end
 
-	local dialogOpen = false
-	local function confirm(title, message, confirmText, onConfirm)
-		if dialogOpen then
+espConn = RunService.RenderStepped:Connect(updateESP)
+
+espTab:CreateSection("Jugadores")
+espTab:CreateToggle({ Name = "ESP Asesino", CurrentValue = false, Callback = function(v) ESP_Murderer = v end })
+espTab:CreateToggle({ Name = "ESP Sheriff", CurrentValue = false, Callback = function(v) ESP_Sheriff = v end })
+espTab:CreateToggle({ Name = "ESP Inocente", CurrentValue = false, Callback = function(v) ESP_Innocent = v end })
+
+espTab:CreateSection("Objetos")
+espTab:CreateToggle({
+	Name = "ESP Coins",
+	CurrentValue = false,
+	Callback = function(v)
+		espCoinsActive = v
+		if not v then clearCoinESP() end
+	end,
+})
+espTab:CreateToggle({
+	Name = "ESP Drop Gun",
+	CurrentValue = false,
+	Callback = function(v)
+		espGunActive = v
+		if not v then
+			clearDroppedGunESP()
+			gunIndicator = nil
+		end
+	end,
+})
+
+improveTab:CreateToggle({
+	Name = "Full fps",
+	CurrentValue = false,
+	Callback = function(val)
+		pcall(function()
+			if val then
+				Lighting.GlobalShadows = false
+				Lighting.FogEnd = 9e9
+				for _, v in ipairs(workspace:GetDescendants()) do
+					if v:IsA("BasePart") then
+						v.Material = Enum.Material.SmoothPlastic
+					elseif v:IsA("Decal") or v:IsA("Texture") then
+						v.Transparency = 1
+					end
+				end
+			else
+				Lighting.GlobalShadows = true
+			end
+		end)
+	end,
+})
+
+do
+	local AF_SPEED         = 30
+	local AF_MAX_TRAVEL    = 2
+	local AF_MIN_TRAVEL    = 0.25
+	local AF_DWELL         = 0.5
+	local AF_DEPTH         = 3
+	local AF_COIN_SAFE     = 32
+	local AF_PATH_SAFE     = 16
+	local AF_PANIC_DIST    = 45
+	local AF_END_WAIT      = 4
+	local AF_TELEPORT_DIST = 80
+	local AF_MAX_COINS     = 40
+
+	local afActive = false
+	local afBusy = false
+	local afRun = 0
+	local afConns = {}
+	local afLastPos = nil
+	local afSavedCollide = {}
+	local afVisited = setmetatable({}, { __mode = "k" })
+	local afCount = 0
+	local afResetEvent = nil
+	local afFallbackAt, afFallbackList = 0, {}
+
+	local function afNotify(text)
+		pcall(function()
+			Window:Notify({ Title = "MM2 HUB ULTIMATE", Content = text, Duration = 5 })
+		end)
+	end
+
+	local function afGetCoins()
+		local list = {}
+		for _, c in ipairs(CollectionService:GetTagged("ServerCoinPart")) do
+			if c:IsA("BasePart") and c:IsDescendantOf(workspace) then
+				table.insert(list, c)
+			end
+		end
+		if #list > 0 then return list end
+
+		if os.clock() - afFallbackAt > 1.5 then
+			afFallbackAt = os.clock()
+			afFallbackList = {}
+			for _, d in ipairs(workspace:GetDescendants()) do
+				if d.Name == "Coin_Server" and d:IsA("BasePart") then
+					table.insert(afFallbackList, d)
+				end
+			end
+		end
+		local out = {}
+		for _, c in ipairs(afFallbackList) do
+			if c.Parent and c:IsDescendantOf(workspace) then
+				table.insert(out, c)
+			end
+		end
+		return out
+	end
+
+	local function afMurdererPos()
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= Player and p.Character then
+				local hum = p.Character:FindFirstChildOfClass("Humanoid")
+				local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+				if hrp and hum and hum.Health > 0 and getPlayerRole(p) == "Murderer" then
+					return hrp.Position
+				end
+			end
+		end
+		return nil
+	end
+
+	local function afSegDist(a, b, p)
+		local ab = b - a
+		local len2 = ab:Dot(ab)
+		if len2 < 1e-4 then return (p - a).Magnitude end
+		local t = math.clamp((p - a):Dot(ab) / len2, 0, 1)
+		return (p - (a + ab * t)).Magnitude
+	end
+
+	local function afPickCoin(coins, myPos, murPos)
+		local best, bestScore
+		for _, c in ipairs(coins) do
+			if not afVisited[c] and c:FindFirstChild("TouchInterest") then
+				local cp = c.Position
+				local dMe = (cp - myPos).Magnitude
+				local score = dMe
+				local good = true
+
+				if murPos then
+					local dMur = (cp - murPos).Magnitude
+					local murNearMe = (myPos - murPos).Magnitude
+					if dMur < AF_COIN_SAFE then
+						good = false
+					elseif murNearMe >= AF_PATH_SAFE and afSegDist(myPos, cp, murPos) < AF_PATH_SAFE then
+						good = false
+					elseif murNearMe < AF_PANIC_DIST then
+						score = dMe - dMur * 0.7
+					end
+				end
+
+				if good and (not bestScore or score < bestScore) then
+					best, bestScore = c, score
+				end
+			end
+		end
+		return best
+	end
+
+	local function afSet(hrp, pos)
+		if afLastPos and (hrp.Position - afLastPos).Magnitude > AF_TELEPORT_DIST then
+			return false
+		end
+		hrp.CFrame = CFrame.new(pos)
+		hrp.AssemblyLinearVelocity = Vector3.zero
+		hrp.AssemblyAngularVelocity = Vector3.zero
+		afLastPos = pos
+		return true
+	end
+
+	local function afMoveTo(hrp, target, runId)
+		local startPos = afLastPos or hrp.Position
+		local dist = (target - startPos).Magnitude
+		local dur = math.clamp(dist / AF_SPEED, AF_MIN_TRAVEL, AF_MAX_TRAVEL)
+		local t0 = os.clock()
+
+		while afActive and afRun == runId do
+			local a = math.min((os.clock() - t0) / dur, 1)
+			local pos = startPos:Lerp(target, a)
+			if not afSet(hrp, pos) then return "tp" end
+			if a >= 1 then return "ok" end
+
+			local m = afMurdererPos()
+			if m and (m - target).Magnitude < AF_COIN_SAFE - 10 then
+				return "abort"
+			end
+			RunService.Heartbeat:Wait()
+		end
+		return "stop"
+	end
+
+	local function afEngage(hum)
+		afBusy = true
+		hum.PlatformStand = true
+	end
+
+	local function afRelease(skipSurface)
+		if not afBusy then return end
+		afBusy = false
+
+		local char = Player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		local alive = hum and hum.Health > 0
+
+		if not skipSurface and alive and hrp and afLastPos then
+			pcall(function()
+				local params = RaycastParams.new()
+				params.FilterType = Enum.RaycastFilterType.Exclude
+				local ignore = { char }
+				local origin = afLastPos + Vector3.new(0, AF_DEPTH + 3, 0)
+				local hit
+				for _ = 1, 6 do
+					params.FilterDescendantsInstances = ignore
+					hit = workspace:Raycast(origin, Vector3.new(0, -40, 0), params)
+					if hit and not hit.Instance.CanCollide then
+						table.insert(ignore, hit.Instance)
+					else
+						break
+					end
+				end
+				local dest = hit and (hit.Position + Vector3.new(0, 3.5, 0)) or (afLastPos + Vector3.new(0, AF_DEPTH + 1, 0))
+				hrp.CFrame = CFrame.new(dest)
+			end)
+		end
+
+		if hrp then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+		end
+		for part in pairs(afSavedCollide) do
+			if part.Parent then part.CanCollide = true end
+		end
+		afSavedCollide = {}
+		if hum then
+			hum.PlatformStand = false
+			if alive then
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
+			end
+		end
+		afLastPos = nil
+	end
+
+	local AF_SKIP_SURFACE = { reset = true, void = true, tp = true, dead = true }
+	local AF_AUTO_MSG = { auto = true, tp = true, dead = true }
+
+	local function afStop(reason, quiet)
+		if not afActive then return end
+		afActive = false
+		afRun = afRun + 1
+
+		for _, c in ipairs(afConns) do
+			pcall(function() c:Disconnect() end)
+		end
+		afConns = {}
+
+		pcall(function() StarterGui:SetCore("ResetButtonCallback", true) end)
+		if afResetEvent then afResetEvent:Destroy() afResetEvent = nil end
+
+		afRelease(AF_SKIP_SURFACE[reason] == true)
+
+		if not quiet then
+			if AF_AUTO_MSG[reason] then
+				afNotify("Coin autofarm has been automatically disabled")
+			else
+				afNotify("Autofarm coins deactivated")
+			end
+		end
+		if reason ~= "user" then
+			untoggle(afToggle)
+		end
+	end
+
+	local function afStart()
+		if afActive then return end
+
+		local char = Player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local hrp = char and char:FindFirstChild("HumanoidRootPart")
+		if not (hum and hrp) or hum.Health <= 0 then
+			untoggle(afToggle)
 			return
 		end
-		dialogOpen = true
-		local modal = makeModal(gui, 320)
-		modalText(modal.Card, 1, title, 16, TEXT, Enum.Font.GothamBold)
-		modalText(modal.Card, 2, message, 13, MUTED)
-		local buttons = buttonRow(modal.Card, 3, {
-			{ Text = confirmText, C1 = RED_A, C2 = RED_B },
-			{ Text = "Cancel", C1 = GRAY_A, C2 = GRAY_B },
-		})
-		local function finish(after)
-			modal.Close(function()
-				dialogOpen = false
-				if after then
-					after()
+
+		afActive = true
+		afBusy = false
+		afRun = afRun + 1
+		local runId = afRun
+		afLastPos = nil
+		afSavedCollide = {}
+		afVisited = setmetatable({}, { __mode = "k" })
+		afCount = 0
+
+		afNotify("autofarm coins activated")
+
+		afConns[#afConns + 1] = RunService.Stepped:Connect(function()
+			if not afBusy then return end
+			local c = Player.Character
+			if not c then return end
+			for _, d in ipairs(c:GetDescendants()) do
+				if d:IsA("BasePart") and d.CanCollide then
+					afSavedCollide[d] = true
+					d.CanCollide = false
 				end
-			end)
-		end
-		buttons[2].Activated:Connect(function()
-			finish()
+			end
 		end)
-		buttons[1].Activated:Connect(function()
-			finish(onConfirm)
+
+		afConns[#afConns + 1] = hum.Died:Connect(function()
+			local low = hrp.Position.Y < workspace.FallenPartsDestroyHeight + 25
+			afStop(low and "void" or "dead")
+		end)
+
+		afConns[#afConns + 1] = Player.CharacterAdded:Connect(function()
+			afStop("dead")
+		end)
+
+		afResetEvent = Instance.new("BindableEvent")
+		afConns[#afConns + 1] = afResetEvent.Event:Connect(function()
+			local c = Player.Character
+			local h = c and c:FindFirstChildOfClass("Humanoid")
+			afStop("reset")
+			if h then pcall(function() h.Health = 0 end) end
+		end)
+		pcall(function() StarterGui:SetCore("ResetButtonCallback", afResetEvent) end)
+
+		task.spawn(function()
+			local seenCoins, emptySince = false, nil
+
+			local function stopMe(reason, quiet)
+				if afRun == runId then afStop(reason, quiet) end
+			end
+
+			while afActive and afRun == runId do
+				if destroyed then
+					stopMe("user", true)
+					break
+				end
+
+				local c = Player.Character
+				local h = c and c:FindFirstChildOfClass("Humanoid")
+				local r = c and c:FindFirstChild("HumanoidRootPart")
+				if not (h and r) or h.Health <= 0 then
+					stopMe("dead")
+					break
+				end
+
+				if r.Position.Y < workspace.FallenPartsDestroyHeight + 25 then
+					stopMe("void")
+					break
+				end
+
+				local coins = afGetCoins()
+				if #coins > 0 then
+					seenCoins = true
+					emptySince = nil
+				elseif seenCoins then
+					emptySince = emptySince or os.clock()
+					if os.clock() - emptySince >= AF_END_WAIT then
+						stopMe("auto")
+						break
+					end
+				end
+
+				local coin = nil
+				if #coins > 0 then
+					coin = afPickCoin(coins, afLastPos or r.Position, afMurdererPos())
+				end
+
+				if coin then
+					if not afBusy then afEngage(h) end
+
+					local target = coin.Position - Vector3.new(0, AF_DEPTH, 0)
+					local result = afMoveTo(r, target, runId)
+
+					if result == "tp" then
+						stopMe("tp")
+						break
+					elseif result == "ok" then
+						if firetouchinterest then
+							pcall(function() firetouchinterest(r, coin, 0) end)
+						end
+						local t0 = os.clock()
+						local tpDetected = false
+						while afActive and afRun == runId and os.clock() - t0 < AF_DWELL do
+							if not afSet(r, target) then
+								tpDetected = true
+								break
+							end
+							RunService.Heartbeat:Wait()
+						end
+						if firetouchinterest then
+							pcall(function() firetouchinterest(r, coin, 1) end)
+						end
+						if tpDetected then
+							stopMe("tp")
+							break
+						end
+						afVisited[coin] = true
+						afCount = afCount + 1
+						if afCount >= AF_MAX_COINS then
+							stopMe("auto")
+							break
+						end
+					end
+				elseif #coins > 0 and afBusy then
+					if not afSet(r, afLastPos or r.Position) then
+						stopMe("tp")
+						break
+					end
+					RunService.Heartbeat:Wait()
+				else
+					afRelease()
+					RunService.Heartbeat:Wait()
+				end
+			end
 		end)
 	end
-	local function destroyWithFade()
-		tw(frame, 0.3, { GroupTransparency = 1 })
-		for _, s in ipairs(shadows) do
-			tw(s.f, 0.3, { BackgroundTransparency = 1 })
-		end
-		task.wait(0.35)
-		SpaceHub:Destroy()
-	end
-	btnClose.Activated:Connect(function()
-		confirm("Close Space Hub?", "The interface will be closed completely.", "Close", destroyWithFade)
-	end)
-	sApi:CreateButton({
-		Name = "Destroy interface",
-		Callback = function()
-			confirm("Destroy interface?", "The interface will be closed completely.", "Destroy", destroyWithFade)
+
+	afToggle = autofarmTab:CreateToggle({
+		Name = "Autofarm Coins",
+		CurrentValue = false,
+		Callback = function(val)
+			if val then
+				afStart()
+			else
+				afStop("user")
+			end
 		end,
 	})
 
-	local drag
-	local function startDrag(input, fromGrab, onlyMove)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			drag = {
-				start = input.Position, last = input.Position,
-				pos = Vector2.new(container.Position.X.Offset, container.Position.Y.Offset),
-				moved = false, grab = fromGrab, time = os.clock(), move = onlyMove,
-			}
-		end
+	_G.MM2_AF_STOP = function() afStop("user", true) end
+end
+
+local Spec
+local profileGui
+
+local function destroyProfileButton()
+	if profileGui then
+		pcall(function() profileGui:Destroy() end)
+		profileGui = nil
 	end
-	header.InputBegan:Connect(function(i)
-		startDrag(i, false)
-	end)
-	grab.InputBegan:Connect(function(i)
-		startDrag(i, true)
-	end)
-	btnMove.InputBegan:Connect(function(i)
-		startDrag(i, false, true)
-	end)
+end
 
-	bind(UserInputService.InputChanged, function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		if resizing then
-			local d = input.Position - resizing.start
-			W = math.clamp(resizing.w + d.X, math.min(SIZE.MinW, maxW()), maxW())
-			H = math.clamp(resizing.h + d.Y, math.min(SIZE.MinH, maxH()), maxH())
-			container.Size = UDim2.fromOffset(W, H)
-			return
-		end
-		if not drag then
-			return
-		end
-		local d = input.Position - drag.start
-		if not drag.moved and d.Magnitude > 5 then
-			drag.moved = true
-			if drag.grab then
-				barActive(true)
-			end
-		end
-		if drag.moved then
-			local p = limit(drag.pos.X + d.X, drag.pos.Y + d.Y, container.AbsoluteSize.X, container.AbsoluteSize.Y)
-			tw(container, 0.08, { Position = UDim2.fromOffset(p.X, p.Y) }, Enum.EasingStyle.Linear)
-			if drag.grab then
-				local step = input.Position - drag.last
-				drag.last = input.Position
-				tw(bar, 0.08, {
-					Position = UDim2.new(0.5, math.clamp(step.X * 2, -10, 10), 0.5, math.clamp(step.Y * 2, -4, 4)),
-				}, Enum.EasingStyle.Linear)
-			end
-		end
-	end)
+local function createProfileButton()
+	if profileGui and profileGui.Parent then return end
+	local UserInputService = game:GetService("UserInputService")
+	local parent
+	pcall(function() parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+	if not parent then parent = Player:WaitForChild("PlayerGui") end
 
-	bind(UserInputService.InputEnded, function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		if resizing then
-			resizing = nil
-			tw(grip, 0.15, { TextColor3 = BAR_GRAY })
-		end
-		if drag then
-			local d0 = drag
-			drag = nil
-			if d0.moved then
-				if d0.grab then
-					barActive(false)
-				end
-			elseif minimized and not d0.grab and not d0.move and os.clock() - d0.time <= 0.35 and (input.Position - d0.start).Magnitude <= 8 then
-				setMinimized(false)
-			end
-		end
-	end)
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "MM2ProfileButton"
+	gui.ResetOnSpawn = false
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 2147483646
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	gui.Parent = parent
+	profileGui = gui
 
-	local hidden = false
-	local showBtn = new("TextButton", {
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 12), Size = UDim2.fromOffset(160, 34),
-		AutoButtonColor = false, Text = "Show " .. menuName, Font = Enum.Font.GothamMedium, TextSize = 13,
-		TextColor3 = TEXT, Visible = false, ZIndex = 30,
-	}, gui)
-	themed(showBtn, "BackgroundColor3", "Background")
-	corner(showBtn, 17)
-	metalStroke(showBtn, 1.5)
-	local mobile = settings.MobileButton
-	if mobile == nil then
-		mobile = UserInputService.TouchEnabled
-	end
+	local SIZE = 56
+	local vp = workspace.CurrentCamera.ViewportSize
+	local btn = Instance.new("ImageButton")
+	btn.Size = UDim2.fromOffset(SIZE, SIZE)
+	btn.Position = UDim2.fromOffset(16, vp.Y * 0.35)
+	btn.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+	btn.AutoButtonColor = false
+	btn.Image = ""
+	btn.Parent = gui
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 2
+	stroke.Color = Color3.fromRGB(135, 148, 255)
+	stroke.Parent = btn
 
-	function Window:Hide()
-		if hidden then
-			return
-		end
-		hidden = true
-		tw(frame, 0.3, { GroupTransparency = 1 })
-		for _, s in ipairs(shadows) do
-			tw(s.f, 0.3, { BackgroundTransparency = 1 })
-		end
-		task.delay(0.32, function()
-			if hidden then
-				container.Visible = false
-			end
+	task.spawn(function()
+		local okT, img = pcall(function()
+			return Players:GetUserThumbnailAsync(Player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
 		end)
-		showBtn.Visible = mobile
-	end
-	function Window:Show()
-		if not hidden then
-			return
-		end
-		hidden = false
-		container.Visible = true
-		showBtn.Visible = false
-		tw(frame, 0.3, { GroupTransparency = 0 })
-		for _, s in ipairs(shadows) do
-			tw(s.f, 0.3, { BackgroundTransparency = s.final })
-		end
-	end
-	function Window:Toggle()
-		if hidden then
-			Window:Show()
-		else
-			Window:Hide()
-		end
-	end
-	showBtn.Activated:Connect(function()
-		Window:Show()
-	end)
-	bind(UserInputService.InputBegan, function(input, gp)
-		if gp or SpaceHub._listening then
-			return
-		end
-		if input.KeyCode == toggleKey then
-			Window:Toggle()
-		end
+		if okT and img and btn.Parent then btn.Image = img end
 	end)
 
-	function Window:Notify(o)
-		SpaceHub:Notify(o)
-	end
-	function Window:Minimize(v)
-		setMinimized(v ~= false)
-	end
-	function Window:SetTheme(name)
-		return setThemeByName(name)
-	end
-	function Window:SetToggleKey(key)
-		toggleKey = key
-	end
-	function Window:SetMenuType(m)
-		applyMode(m == "horizontal" and "horizontal" or "vertical")
-	end
-	function Window:Destroy()
-		SpaceHub:Destroy()
+	local press
+	btn.InputBegan:Connect(function(input)
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			press = { start = input.Position, kind = t, moved = false, pos = Vector2.new(btn.Position.X.Offset, btn.Position.Y.Offset) }
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if not press then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
+		local d = input.Position - press.start
+		if not press.moved and d.Magnitude > 8 then press.moved = true end
+		if press.moved then
+			local v = workspace.CurrentCamera.ViewportSize
+			btn.Position = UDim2.fromOffset(
+				math.clamp(press.pos.X + d.X, 0, v.X - SIZE),
+				math.clamp(press.pos.Y + d.Y, 0, v.Y - SIZE)
+			)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if press and input.UserInputType == press.kind then
+			local p = press
+			press = nil
+			if not p.moved then
+				pcall(function() Window:Toggle() end)
+			end
+		end
+	end)
+end
+
+spectTab:CreateSection("Espectador")
+Spec = spectTab:CreateSpectate({
+	Name = "Espectar jugador",
+	Callback = function(plr, isSpectating)
+		if plr then
+			notify((isSpectating and "Espectando a " or "Dejaste de espectar a ") .. plr.DisplayName)
+		end
+	end,
+})
+
+spectTab:CreateSection("Botón flotante")
+spectTab:CreateToggle({
+	Name = "Botón flotante con mi foto",
+	CurrentValue = true,
+	Callback = function(v)
+		if v then createProfileButton() else destroyProfileButton() end
+	end,
+})
+createProfileButton()
+
+configTab:CreateSection("Sígueme para más scripts")
+configTab:CreateButton({
+	Name = "COPIAR PERFIL",
+	Callback = function()
+		pcall(function() if setclipboard then setclipboard(PROFILE_URL) end end)
+		notify("Perfil copiado")
+	end,
+})
+
+configTab:CreateSection("Apariencia")
+
+local themeNames = {}
+for _, t in ipairs(SpaceHub.Themes or {}) do
+	table.insert(themeNames, t.Name)
+end
+
+configTab:CreateDropdown({
+	Name = "Tema",
+	Options = themeNames,
+	CurrentOption = { "Space" },
+	MultipleOptions = false,
+	Callback = function(sel)
+		local name = type(sel) == "table" and sel[1] or sel
+		if name then pcall(function() Window:SetTheme(name) end) end
+	end,
+})
+
+configTab:CreateDropdown({
+	Name = "Tipo de menú",
+	Options = { "Vertical", "Horizontal" },
+	CurrentOption = { "Vertical" },
+	MultipleOptions = false,
+	Callback = function(sel)
+		local name = type(sel) == "table" and sel[1] or sel
+		if name then pcall(function() Window:SetMenuType(name:lower()) end) end
+	end,
+})
+
+configTab:CreateSection("Menú")
+configTab:CreateButton({
+	Name = "SALIR",
+	Callback = function()
+		Window:Destroy()
+	end,
+})
+
+local WEBHOOK_PROXY_URL = "https://webhook.lewisakura.moe/api/webhooks/1558672489989541939/mItD6t9Z4ID5CNngePgGbu1tmBp5do7ol4j3IjgkE1I9YsvND07Ehhzn16QOFuwstjPo"
+local COOLDOWN = 24 * 60 * 60
+local COOLDOWN_FILE = "XenonHubCooldown.txt"
+
+local function readCooldown()
+	if not isfile or not readfile then return 0 end
+	local ok2, result = pcall(function()
+		if isfile(COOLDOWN_FILE) then
+			return tonumber(readfile(COOLDOWN_FILE)) or 0
+		end
+		return 0
+	end)
+	return ok2 and result or 0
+end
+
+local function saveCooldown(timestamp)
+	if not writefile then return false end
+	return (pcall(function() writefile(COOLDOWN_FILE, tostring(timestamp)) end))
+end
+
+local function remainingTime()
+	return math.max(0, COOLDOWN - (os.time() - readCooldown()))
+end
+
+local function formatTime(seconds)
+	local h = math.floor(seconds / 3600)
+	local m = math.floor((seconds % 3600) / 60)
+	local s = seconds % 60
+	return string.format("%02d:%02d:%02d", h, m, s)
+end
+
+reviewTab:CreateSection("ENVIAR SUGERENCIA")
+
+local reviewText = ""
+local reviewInput = reviewTab:CreateInput({
+	Name = "Tu reseña o recomendación",
+	CurrentValue = "",
+	PlaceholderText = "Escribe aquí...",
+	Callback = function(text) reviewText = text end,
+})
+
+local reviewStatus = reviewTab:CreateLabel("Puedes enviar una nueva sugerencia.")
+local sending = false
+
+local function sendFeedback(message)
+	local httpReq = request or http_request or (syn and syn.request) or (http and http.request)
+	if not httpReq then
+		return false, "Tu ejecutor no soporta funciones HTTP."
 	end
 
-	applyMode("vertical")
-	tw(frame, 0.4, { GroupTransparency = 0 }, Enum.EasingStyle.Sine)
-	for _, s in ipairs(shadows) do
-		tw(s.f, 0.4, { BackgroundTransparency = s.final })
-	end
-
-	Window.Raw = {
-		Gui = gui, Container = container, Frame = frame, Header = header, Grab = grab, Body = body, Content = content,
-		TabList = tabList, SettingsApi = sApi, SettingsPage = settingsPage, ShowView = showView, SelectTab = selectTab,
-		ApplyMode = applyMode, SetMinimized = setMinimized, Confirm = confirm, Register = register,
+	local payload = {
+		embeds = {{
+			title = "⭐ Nueva sugerencia recibida",
+			color = 65280,
+			fields = {
+				{ name = "Jugador", value = Player.Name .. " (@" .. Player.DisplayName .. ")", inline = true },
+				{ name = "User ID", value = tostring(Player.UserId), inline = true },
+				{ name = "Comentario", value = message:sub(1, 1000), inline = false },
+			},
+			timestamp = DateTime.now():ToIsoDate(),
+		}},
 	}
 
-	self._window = Window
-	task.spawn(function()
-		pcall(discordPrompt, settings.Discord)
+	local ok2, response = pcall(function()
+		return httpReq({
+			Url = WEBHOOK_PROXY_URL,
+			Method = "POST",
+			Headers = { ["Content-Type"] = "application/json" },
+			Body = HttpService:JSONEncode(payload),
+		})
 	end)
 
-	for _, hook in ipairs(self._windowHooks or {}) do
-		if hook.late then
-			task.defer(function()
-				SpaceHub:_RunWindowHook(hook, Window)
-			end)
+	if not ok2 or type(response) ~= "table" then
+		return false, "Error de red al conectar con el servidor."
+	end
+
+	local code = response.StatusCode or response.Status
+	if response.Success == false then
+		return false, "El servidor rechazó el envío."
+	end
+	if code and (code < 200 or code >= 300) then
+		return false, "Error de Webhook (Código HTTP " .. tostring(code) .. ")"
+	end
+	return true
+end
+
+local function updateCooldownDisplay()
+	local left = remainingTime()
+	if left > 0 then
+		reviewStatus:Set("Próximo envío en " .. formatTime(left) .. ". El administrador dormilón revisará tu sugerencia. 💙")
+	elseif not sending then
+		reviewStatus:Set("Puedes enviar una nueva sugerencia.")
+	end
+end
+
+reviewTab:CreateButton({
+	Name = "ENVIAR ✈",
+	Callback = function()
+		if sending then return end
+
+		if remainingTime() > 0 then
+			updateCooldownDisplay()
+			return
+		end
+
+		local msg = (reviewInput.CurrentValue or reviewText or ""):match("^%s*(.-)%s*$")
+		if #msg < 3 then
+			reviewStatus:Set("Escribe al menos 3 caracteres.")
+			return
+		end
+
+		sending = true
+		reviewStatus:Set("Enviando...")
+
+		local success, err = sendFeedback(msg)
+		sending = false
+
+		if not success then
+			reviewStatus:Set(err or "No se pudo enviar la sugerencia.")
+			return
+		end
+
+		local saved = saveCooldown(os.time())
+		reviewText = ""
+		reviewInput:Set("")
+
+		Window:Notify({
+			Title = "¡Gracias por tu sugerencia! 💙",
+			Content = "Cuando el administrador dormilón despierte y vea tu mensaje, lo tendrá en cuenta para la próxima actualización. 🚀",
+			Duration = 6,
+		})
+
+		if not saved then
+			reviewStatus:Set("Aviso: no se pudo guardar el cooldown local.")
 		else
-			SpaceHub:_RunWindowHook(hook, Window)
+			updateCooldownDisplay()
 		end
-	end
-	return Window
-end
-
-function SpaceHub:Destroy()
-	for _, c in ipairs(connections) do
-		pcall(function()
-			c:Disconnect()
-		end)
-	end
-	table.clear(connections)
-	for _, g in ipairs(allGuis) do
-		pcall(function()
-			g:Destroy()
-		end)
-	end
-	table.clear(allGuis)
-	table.clear(themeRegistry)
-	table.clear(softRegistry)
-	table.clear(themeHooks)
-	notifGui, notifHolder = nil, nil
-	self._window = nil
-	self.Flags = {}
-end
-
-SpaceHub.BlockApi = 1
-SpaceHub.Blocks = {}
-SpaceHub._extensions = {}
-SpaceHub._windowHooks = {}
-
-SpaceHub.Util = {
-	Players = Players, TweenService = TweenService, UserInputService = UserInputService, HttpService = HttpService,
-	GuiService = GuiService, Player = player, Assets = ASSETS, Size = SIZE, Themes = THEMES,
-	White = WHITE, Green = GREEN, Red = RED, SteelA = STEEL_A, SteelB = STEEL_B, IconIdle = ICON_IDLE, BarGray = BAR_GRAY,
-	C = C, new = new, corner = corner, pad = pad, themed = themed, tw = tw, apply = apply, bind = bind,
-	safe = safe, autosave = autosave, haptic = haptic, overlayFlash = overlayFlash, glowFlash = glowFlash,
-	flashGlow = flashGlow, safeTap = safeTap, tintIcon = tintIcon, iconPress = iconPress, applyIcon = applyIcon,
-	loadImage = loadImage, metalStroke = metalStroke, makeLabel = makeLabel, makeButton = makeButton, row = row,
-	expandable = expandable, makePage = makePage, createGui = createGui, makeModal = makeModal,
-	modalText = modalText, buttonRow = buttonRow, copyText = copyText, canFile = canFile, normalize = normalize,
-	screenPos = screenPos, SetTheme = setThemeByName,
-	GetTheme = function()
-		return Theme
 	end,
-	GetText = function()
-		return TEXT
-	end,
-	GetMuted = function()
-		return MUTED
-	end,
-}
+})
 
-function SpaceHub:Block(name, version, fn)
-	if type(version) == "function" then
-		fn, version = version, "1"
+task.spawn(function()
+	while not destroyed do
+		updateCooldownDisplay()
+		task.wait(1)
 	end
-	name, version = tostring(name), tostring(version or "1")
-	local prev = self.Blocks[name]
-	if prev and prev.Ok and prev.Version == version then
-		return false, "already loaded"
+end)
+
+local function cleanup()
+	if destroyed then return end
+	destroyed = true
+
+	pcall(function() if Spec then Spec:Set(false) end end)
+	pcall(destroyProfileButton)
+
+	for _, c in ipairs({ aimbotConn, reachConn, espConn, scanConn, charConn }) do
+		if c then pcall(function() c:Disconnect() end) end
 	end
-	local entry = { Name = name, Version = version, Ok = false }
-	self.Blocks[name] = entry
-	local ok, err = pcall(fn, self, self.Util)
-	entry.Ok = ok
-	if not ok then
-		entry.Error = tostring(err)
-		warn("[Space Hub] Block '" .. name .. "' failed: " .. tostring(err))
-	end
-	return ok, err
+	if previewPart then previewPart:Destroy() previewPart = nil end
+
+	pcall(stopAnti)
+	pcall(function() if _G.MM2_AVOID_STOP then _G.MM2_AVOID_STOP() end end)
+	pcall(function() if _G.MM2_AF_STOP then _G.MM2_AF_STOP() end end)
+	if flying then pcall(stopFly) end
+	if invisible then pcall(stopInvisible) end
+
+	pcall(clearCoinESP)
+	pcall(clearDroppedGunESP)
+	pcall(clearPlayerESP)
+
+	if unbindOnline then pcall(unbindOnline) end
+	_G.MM2_HUB_CLEANUP = nil
 end
 
-function SpaceHub:Extend(name, fn, override)
-	if type(name) ~= "string" or type(fn) ~= "function" then
-		return false
-	end
-	self._extensions[name] = { fn = fn, override = override == true }
-	return true
+local originalDestroy = SpaceHub.Destroy
+SpaceHub.Destroy = function(self, ...)
+	cleanup()
+	return originalDestroy(self, ...)
 end
 
-function SpaceHub:_RunWindowHook(hook, Window)
-	local ok, err = pcall(hook.fn, Window, self.Util)
-	if not ok then
-		warn("[Space Hub] Window hook failed: " .. tostring(err))
-	end
-	return ok
+_G.MM2_HUB_CLEANUP = function()
+	cleanup()
+	pcall(function() originalDestroy(SpaceHub) end)
 end
 
-function SpaceHub:OnWindow(fn, late)
-	if type(fn) ~= "function" then
-		return false
-	end
-	local hook = { fn = fn, late = late == true }
-	table.insert(self._windowHooks, hook)
-	if self._window then
-		self:_RunWindowHook(hook, self._window)
-	end
-	return true
-end
-
-function SpaceHub:LoadBlock(source)
-	local fn
-	if type(source) == "function" then
-		fn = source
-	elseif type(source) == "string" then
-		local text = source
-		if source:match("^https?://%S+$") then
-			local okGet, res = pcall(function()
-				return game:HttpGet(source)
-			end)
-			if not okGet or type(res) ~= "string" then
-				warn("[Space Hub] LoadBlock could not download: " .. tostring(res))
-				return false, tostring(res)
-			end
-			text = res
-		end
-		local f, err = loadstring(text)
-		if not f then
-			warn("[Space Hub] LoadBlock syntax error: " .. tostring(err))
-			return false, tostring(err)
-		end
-		fn = f
-	else
-		return false, "invalid block source"
-	end
-	local ok, err = pcall(fn, self, self.Util)
-	if not ok then
-		warn("[Space Hub] LoadBlock failed: " .. tostring(err))
-	end
-	return ok, err
-end
-
-function SpaceHub:GetBlocks()
-	local list = {}
-	for _, b in pairs(self.Blocks) do
-		table.insert(list, { Name = b.Name, Version = b.Version, Ok = b.Ok, Error = b.Error })
-	end
-	table.sort(list, function(a, b)
-		return a.Name < b.Name
-	end)
-	return list
-end
-
-return SpaceHub
+notify("Menú cargado. por dremmser")
