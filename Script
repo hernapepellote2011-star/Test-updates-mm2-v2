@@ -12,7 +12,7 @@ end)
 pcall(function() if _G.MM2_ONLINE_STOP then _G.MM2_ONLINE_STOP() end end)
 pcall(function() if _G.MM2_HUB_CLEANUP then _G.MM2_HUB_CLEANUP() end end)
 
-local LIB_URL = "https://raw.githubusercontent.com/hernapepellote2011-star/Official-space-hub/refs/heads/main/abacktools-no-comments.txt"
+local LIB_URL = "https://raw.githubusercontent.com/hernapepellote2011-star/Space-hub-testing/refs/heads/main/obf_tufaZb7431ixbjzJvwN0m8LWinOx601CyQ06W1CLsZh3vZTsfVNweVcPoenJM2wO.lua.txt"
 
 local ok, SpaceHub = pcall(function()
 	return loadstring(game:HttpGet(LIB_URL))()
